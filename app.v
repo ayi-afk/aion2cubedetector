@@ -21,6 +21,10 @@ const tray_id = u32(1)
 // The server echoes the local player's position only occasionally, so the
 // last known fix is always used; past this age it is shown as stale.
 const stale_position_seconds = 10.0
+// Entering an instance gives the character a new entity id, so updates for
+// it are ignored; past this age the player is detected again (and again
+// every this many seconds while no fresh position arrives).
+const player_redetect_seconds = 15.0
 // Minimum distance change (world units) reported as moving closer/farther.
 const trend_threshold = 10.0
 // Opened or vanished cubes stay listed (greyed) this long, then are removed.
@@ -158,6 +162,7 @@ mut:
 	calibrating     bool
 	calib_start     PlayerFix // position when calibration started
 	last_refresh    f64
+	last_redetect   f64 // last automatic player re-detection
 	status_text     string
 	install_visible bool
 	admin_visible   bool
@@ -701,6 +706,19 @@ fn (mut app App) prune_cubes() {
 		}
 		i--
 	}
+}
+
+// auto_redetect re-arms player detection when the position has gone stale,
+// keeping the last fix on screen until a new one arrives.
+fn (mut app App) auto_redetect() {
+	p := app.player or { return }
+	now := now_seconds()
+	if now - p.timestamp < player_redetect_seconds
+		|| now - app.last_redetect < player_redetect_seconds {
+		return
+	}
+	app.last_redetect = now
+	app.capture.request_player_reset()
 }
 
 fn (app &App) is_self(id u64) bool {
@@ -1351,6 +1369,7 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 					return 0
 				}
 				app.prune_cubes()
+				app.auto_redetect()
 				// Keeps the position age and the update dot in the corner live.
 				C.InvalidateRect(app.ctl(.compass), unsafe { nil }, 0)
 				// Position ages are shown in seconds; redraw at least once a second.

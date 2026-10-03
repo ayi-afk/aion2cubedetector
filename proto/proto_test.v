@@ -207,6 +207,27 @@ fn test_player_detection_and_filtering() {
 	assert dec.self_id or { 0 } == 900
 }
 
+fn test_new_entity_id_after_reset() {
+	// Entering an instance gives the character a new id: it is ignored until
+	// player detection is reset (the app does that once the fix is stale).
+	mut dec := Decoder{}
+	mut s := Stream{}
+	s.feed(5, position_message(0x2a, 900, 1, 2, 3), 2.0, mut dec)
+	dec.take_events()
+	mut seq := u32(5 + position_message(0x2a, 900, 1, 2, 3).len)
+	instance := position_message(0x2a, 1234, 7, 8, 9)
+	s.feed(seq, instance, 3.0, mut dec)
+	assert dec.take_events().len == 0
+	seq += u32(instance.len)
+	dec.reset_player()
+	s.feed(seq, position_message(0x2b, 1234, 10, 11, 12), 4.0, mut dec)
+	events := dec.take_events()
+	assert events.len == 2
+	assert events[0].kind == .player_detected
+	assert events[0].id == 1234
+	assert events[1].pos == Vec3{10, 11, 12}
+}
+
 fn test_wrong_discriminator_ignored() {
 	mut msg := position_message(0x2b, 900, 1, 2, 3)
 	msg[msg.len - 13] = 0x00 // 01 02 -> 01 00 does not match op 0x2b

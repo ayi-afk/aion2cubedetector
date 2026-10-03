@@ -1,3 +1,3 @@
 # Fixes / changes for the next upload, one per line ('#' lines are ignored).
 # upload.bat posts them with the build and then clears this list.
-Compass north fixed: north is now world -Y and east +X (measured in game), so arrows match the minimap without calibration
+Player is detected again automatically when the position is older than 15 s (e.g. after entering an instance)

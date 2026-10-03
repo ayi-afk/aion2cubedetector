@@ -36,6 +36,11 @@ distance and a small up/down triangle with the height difference. A `!`
 means another player is opening that cube. Arrows fade when your last known
 position is older than 10 s.
 
+Entering an instance gives your character a new entity id. When your
+position is older than 15 s, Cube Watch detects your character again
+automatically (every 15 s until a fresh position arrives) and keeps the
+last position on screen meanwhile; "Re-detect player" does it right away.
+
 Cubes farther away than "Compass range" (next to "Copy XYZ": 10,000 /
 20,000 / 30,000 / 50,000 / 100,000 units or Unlimited, default 30,000) get
 no arrow; the legend counts them as "too far" and they stay in the list.
