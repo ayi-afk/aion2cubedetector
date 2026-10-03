@@ -82,7 +82,9 @@ list color (nearest is larger; cubes beyond the minimap edge get an arrow
 on the rim; cubes outside "Compass range" are left out). Each marker has a
 small label: an up / down triangle when the cube is above / below you and
 the flat (north-south / east-west) distance, e.g. "2.7k" - height is not
-included. The game must run
+included. A bold "!" above a marker means someone is opening that cube
+(warning color: another player, white: you); a red X marks a cube that was
+just taken and disappears after 5 s. The game must run
 in borderless / windowed mode - nothing can draw over exclusive fullscreen.
 
 - "Game UI": your in-game Edit HUD > UI Proportion (Smaller 88 %, Small

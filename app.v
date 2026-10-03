@@ -29,6 +29,8 @@ const player_redetect_seconds = 15.0
 const trend_threshold = 10.0
 // Opened or vanished cubes stay listed (greyed) this long, then are removed.
 const cube_linger_seconds = 20.0
+// A taken (opened / destroyed) cube shows a red X on the map overlay this long.
+const taken_marker_seconds = 5.0
 
 enum Ctl {
 	status = 100
@@ -131,6 +133,7 @@ struct Target {
 	planar  f64
 	dz      f64
 	contest bool // another player is opening it
+	opening bool // someone (anyone) is opening it
 }
 
 struct PlayerFix {
@@ -179,6 +182,7 @@ mut:
 	trend_ref_time     f64
 	trend              f64
 	targets            []Target // nearest first
+	taken              []Target // cubes taken in the last taken_marker_seconds
 	targets_stale      bool     // player position is old
 	calibrating        bool
 	calib_start        PlayerFix // position when calibration started
@@ -921,6 +925,7 @@ fn (mut app App) refresh_distances() {
 			app.set_cell(i, col_distance, '-')
 			app.set_cell(i, col_height, '-')
 		}
+		app.taken = []
 		app.set_targets([], false)
 		set_text(app.ctl(.nearest), if app.cubes.len == 0 {
 			'No cubes detected yet.'
@@ -935,6 +940,7 @@ fn (mut app App) refresh_distances() {
 
 	compass := app.compass()
 	mut targets := []Target{}
+	mut taken := []Target{}
 	for i, cube in app.cubes {
 		dx, dy, dz := cube.pos.x - p.pos.x, cube.pos.y - p.pos.y, cube.pos.z - p.pos.z
 		planar := math.hypot(dx, dy)
@@ -948,9 +954,19 @@ fn (mut app App) refresh_distances() {
 				planar:  planar
 				dz:      dz
 				contest: cube.state == .opening && !app.is_self(cube.actor)
+				opening: cube.state == .opening
+			}
+		} else if cube.state in [.opened, .gone] && cube.ended > 0
+			&& now - cube.ended < taken_marker_seconds {
+			taken << Target{
+				number:  cube.number
+				bearing: compass.bearing(dx, dy)
+				planar:  planar
+				dz:      dz
 			}
 		}
 	}
+	app.taken = taken
 	targets.sort(a.planar < b.planar)
 	app.set_targets(targets, age > stale_position_seconds)
 	if targets.len == 0 {

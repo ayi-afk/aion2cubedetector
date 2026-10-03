@@ -4,3 +4,4 @@ Player is detected again automatically when the position is older than 15 s (e.g
 Map overlay: cube markers drawn over the game minimap (UI Proportion setting, unlock to move/resize, mouse-wheel zoom, opacity)
 Compass range drop-down now follows dark mode
 Map overlay markers show an up/down arrow (cube above/below you) and the flat distance, e.g. 2.7k
+Map overlay: "!" over a cube that is being opened, red X for 5 s where a cube was taken

@@ -427,7 +427,7 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 		app.draw_zoom_reference(c, cx, cy, scale)
 	}
 	targets := app.compass_targets()
-	if targets.len == 0 {
+	if targets.len == 0 && app.taken.len == 0 {
 		return
 	}
 	r := f32(math.max(4.0, f64(w) * 0.022))
@@ -442,6 +442,26 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 		}
 	}
 	bounds := RectF{left, top, right - left, bottom - top}
+	limit := app.settings.compass_range
+	// Taken in the last few seconds: a red X where the cube was.
+	for t in app.taken {
+		if limit > 0 && t.planar > limit {
+			continue
+		}
+		a := math.radians(t.bearing)
+		d := f32(t.planar) * scale
+		x, y := cx + f32(math.sin(a)) * d, cy - f32(math.cos(a)) * d
+		if x < left || x > right || y < top || y > bottom {
+			continue
+		}
+		arm := r * 1.3
+		for pass in 0 .. 2 {
+			width := if pass == 0 { r * 0.9 } else { r * 0.5 }
+			color := if pass == 0 { u32(0xd0000000) } else { u32(0xffe02424) }
+			c.line(x - arm, y - arm, x + arm, y + arm, width, color)
+			c.line(x - arm, y + arm, x + arm, y - arm, width, color)
+		}
+	}
 	// Farthest first so the nearest marker ends up on top.
 	for i := targets.len - 1; i >= 0; i-- {
 		t := targets[i]
@@ -459,6 +479,7 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 				outline
 			})
 			app.draw_marker_label(c, font, t, x, y, mr, x + mr * 6 > right, bounds)
+			app.draw_opening_alert(c, font, t, x, y, mr)
 			continue
 		}
 		// Off the map: an arrow on the edge pointing towards the cube.
@@ -482,7 +503,19 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 		c.stroke_polygon(pts, 1.5, outline)
 		// Label towards the map centre so it stays on the map.
 		app.draw_marker_label(c, font, t, x, y, s, x > cx, bounds)
+		app.draw_opening_alert(c, font, t, x, y, s)
 	}
+}
+
+// draw_opening_alert puts a bold "!" above a cube someone is opening: the
+// warning color for another player, white for you.
+fn (app &App) draw_opening_alert(c Canvas, font GdipFont, t Target, x f32, y f32, r f32) {
+	if !t.opening || font.font == unsafe { nil } {
+		return
+	}
+	tw, th := c.text_size('!', font)
+	color := if t.contest { with_alpha(app.theme.contested, 255) } else { u32(0xffffffff) }
+	c.outlined_text(x - tw / 2, y - r - th * 0.9, '!', font, color)
 }
 
 // short_units: compact planar distance for the small map labels.
