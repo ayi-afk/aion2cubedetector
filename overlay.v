@@ -435,6 +435,13 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 	left, right := inset, fw - inset
 	top, bottom := fh * f32(minimap_title_height) + inset, fh - inset
 	outline := u32(0xd0000000)
+	font := c.new_font('Segoe UI', f32(math.max(10.0, f64(w) * 0.042))) or { GdipFont{} }
+	defer {
+		if font.font != unsafe { nil } {
+			c.free_font(font)
+		}
+	}
+	bounds := RectF{left, top, right - left, bottom - top}
 	// Farthest first so the nearest marker ends up on top.
 	for i := targets.len - 1; i >= 0; i-- {
 		t := targets[i]
@@ -451,6 +458,7 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 			} else {
 				outline
 			})
+			app.draw_marker_label(c, font, t, x, y, mr, x + mr * 6 > right, bounds)
 			continue
 		}
 		// Off the map: an arrow on the edge pointing towards the cube.
@@ -472,7 +480,53 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 			PointF{x + uy * s * 0.7 - ux * s * 0.5, y - ux * s * 0.7 - uy * s * 0.5}]
 		c.fill_polygon(pts, color)
 		c.stroke_polygon(pts, 1.5, outline)
+		// Label towards the map centre so it stays on the map.
+		app.draw_marker_label(c, font, t, x, y, s, x > cx, bounds)
 	}
+}
+
+// short_units: compact planar distance for the small map labels.
+fn short_units(v f64) string {
+	d := math.abs(v)
+	return if d < 1000 {
+		'${int(math.round(d))}'
+	} else if d < 10000 {
+		'${d / 1000:.1f}k'
+	} else {
+		'${int(math.round(d / 1000))}k'
+	}
+}
+
+// draw_marker_label: [up/down triangle] planar distance, beside a marker at
+// (x, y) of radius r; on its left when `left`, kept inside `bounds`.
+fn (app &App) draw_marker_label(c Canvas, font GdipFont, t Target, x f32, y f32, r f32, left bool, bounds RectF) {
+	if font.font == unsafe { nil } {
+		return
+	}
+	text := short_units(t.planar)
+	tw, th := c.text_size(text, font)
+	show_tri := math.abs(t.dz) >= trend_threshold
+	tri := th * 0.22
+	tri_w := if show_tri { tri * 2 + th * 0.12 } else { f32(0) }
+	total := tri_w + tw
+	gap := r + 2
+	mut lx := if left { x - gap - total } else { x + gap }
+	lx = f32(math.max(bounds.x, math.min(lx, bounds.x + bounds.w - total)))
+	ly := f32(math.max(bounds.y, math.min(y - th / 2, bounds.y + bounds.h - th)))
+	white := u32(0xffffffff)
+	if show_tri {
+		mid := ly + th / 2
+		pts := if t.dz > 0 {
+			[PointF{lx, mid + tri}, PointF{lx + 2 * tri, mid + tri},
+				PointF{lx + tri, mid - tri}]
+		} else {
+			[PointF{lx, mid - tri}, PointF{lx + 2 * tri, mid - tri},
+				PointF{lx + tri, mid + tri}]
+		}
+		c.fill_polygon(pts, white)
+		c.stroke_polygon(pts, 1.2, 0xe0000000)
+	}
+	c.outlined_text(lx + tri_w, ly, text, font, white)
 }
 
 // ---- settings controls ---------------------------------------------------------
@@ -521,9 +575,20 @@ fn (mut app App) update_overlay_controls() {
 		C.EnableWindow(app.ctl(id), int(on))
 	}
 	set_text(app.ctl(.overlay_unlock), if app.overlay_unlocked { 'Lock' } else { 'Unlock' })
-	// A wheel-tuned zoom matches no preset: show it blank.
-	C.SendMessageW(app.ctl(.overlay_zoom), cb_setcursel, usize(overlay_zooms.index(app.settings.overlay_zoom)),
-		0)
+	// Presets, plus the wheel-tuned value as an extra last entry so the
+	// remembered zoom is visible.
+	combo := app.ctl(.overlay_zoom)
+	zoom := app.settings.overlay_zoom
+	C.SendMessageW(combo, cb_resetcontent, 0, 0)
+	for z in overlay_zooms {
+		C.SendMessageW(combo, cb_addstring, 0, ptr_param(format_units(z).to_wide()))
+	}
+	mut sel := overlay_zooms.index(zoom)
+	if sel < 0 {
+		C.SendMessageW(combo, cb_addstring, 0, ptr_param(format_units(zoom).to_wide()))
+		sel = overlay_zooms.len
+	}
+	C.SendMessageW(combo, cb_setcursel, usize(sel), 0)
 }
 
 // draw_zoom_reference marks where you stood when the overlay was unlocked;

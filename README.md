@@ -79,7 +79,10 @@ view remembers its own window size.
 "Map overlay" (bottom row, or the tray menu) lays a transparent,
 click-through window over the game's minimap and marks each cube in its
 list color (nearest is larger; cubes beyond the minimap edge get an arrow
-on the rim; cubes outside "Compass range" are left out). The game must run
+on the rim; cubes outside "Compass range" are left out). Each marker has a
+small label: an up / down triangle when the cube is above / below you and
+the flat (north-south / east-west) distance, e.g. "2.7k" - height is not
+included. The game must run
 in borderless / windowed mode - nothing can draw over exclusive fullscreen.
 
 - "Game UI": your in-game Edit HUD > UI Proportion (Smaller 88 %, Small
@@ -95,6 +98,9 @@ in borderless / windowed mode - nothing can draw over exclusive fullscreen.
   where you started - scroll the mouse wheel over the overlay until the X
   sits on that spot of the minimap (5 % per notch).
 - "Opacity": marker transparency.
+
+All overlay options (on/off, Game UI, zoom, opacity, position) are saved
+with the other settings and restored on the next start.
 
 Markers move when the game reports your position (on stop / landing).
 

@@ -43,10 +43,26 @@ type FnGdipDrawLine = fn (voidptr, voidptr, f32, f32, f32, f32) int
 
 type FnGdipDrawPolygon = fn (voidptr, voidptr, voidptr, int) int
 
+type FnGdipCreateFontFamilyFromName = fn (&u16, voidptr, &voidptr) int
+
+type FnGdipDeleteFontFamily = fn (voidptr) int
+
+type FnGdipCreateFont = fn (voidptr, f32, int, int, &voidptr) int
+
+type FnGdipDeleteFont = fn (voidptr) int
+
+type FnGdipDrawString = fn (voidptr, &u16, int, voidptr, voidptr, voidptr, voidptr) int
+
+type FnGdipMeasureString = fn (voidptr, &u16, int, voidptr, voidptr, voidptr, voidptr, voidptr, voidptr) int
+
+type FnGdipSetTextRenderingHint = fn (voidptr, int) int
+
 const gdip_smoothing_antialias = 4
 const gdip_unit_pixel = 2
 const gdip_fill_alternate = 0
 const gdip_format_32bpp_pargb = 0x000E200B
+const gdip_font_bold = 1
+const gdip_text_antialias = 4 // grayscale: ClearType needs an opaque background
 
 struct GdiplusStartupInput {
 	version            u32 = 1
@@ -80,6 +96,14 @@ struct Gdip {
 	draw_rect_raw  FnGdipDrawRectangle           = unsafe { nil }
 	draw_line_raw  FnGdipDrawLine                = unsafe { nil }
 	draw_poly_raw  FnGdipDrawPolygon             = unsafe { nil }
+	// Text for the overlay labels.
+	font_family     FnGdipCreateFontFamilyFromName = unsafe { nil }
+	delete_family   FnGdipDeleteFontFamily         = unsafe { nil }
+	create_font     FnGdipCreateFont               = unsafe { nil }
+	delete_font     FnGdipDeleteFont               = unsafe { nil }
+	draw_string_raw FnGdipDrawString               = unsafe { nil }
+	measure_raw     FnGdipMeasureString            = unsafe { nil }
+	text_hint       FnGdipSetTextRenderingHint     = unsafe { nil }
 }
 
 fn load_gdip() ?Gdip {
@@ -87,7 +111,9 @@ fn load_gdip() ?Gdip {
 		'GdipCreateSolidFill', 'GdipDeleteBrush', 'GdipCreatePen1', 'GdipDeletePen',
 		'GdipFillPolygon', 'GdipFillEllipse', 'GdipDrawEllipse', 'GdipCreateBitmapFromScan0',
 		'GdipGetImageGraphicsContext', 'GdipDisposeImage', 'GdipGraphicsClear', 'GdipFillRectangle',
-		'GdipDrawRectangle', 'GdipDrawLine', 'GdipDrawPolygon']
+		'GdipDrawRectangle', 'GdipDrawLine', 'GdipDrawPolygon', 'GdipCreateFontFamilyFromName',
+		'GdipDeleteFontFamily', 'GdipCreateFont', 'GdipDeleteFont', 'GdipDrawString',
+		'GdipMeasureString', 'GdipSetTextRenderingHint']
 	mut f := []voidptr{}
 	for name in names {
 		p := proc_address('gdiplus.dll', name)
@@ -121,6 +147,13 @@ fn load_gdip() ?Gdip {
 		draw_rect_raw:    FnGdipDrawRectangle(f[16])
 		draw_line_raw:    FnGdipDrawLine(f[17])
 		draw_poly_raw:    FnGdipDrawPolygon(f[18])
+		font_family:      FnGdipCreateFontFamilyFromName(f[19])
+		delete_family:    FnGdipDeleteFontFamily(f[20])
+		create_font:      FnGdipCreateFont(f[21])
+		delete_font:      FnGdipDeleteFont(f[22])
+		draw_string_raw:  FnGdipDrawString(f[23])
+		measure_raw:      FnGdipMeasureString(f[24])
+		text_hint:        FnGdipSetTextRenderingHint(f[25])
 	}
 }
 
@@ -223,4 +256,64 @@ fn (c Canvas) line(x1 f32, y1 f32, x2 f32, y2 f32, width f32, color u32) {
 	c.g.create_pen(color, width, gdip_unit_pixel, &pen)
 	c.g.draw_line_raw(c.gr, pen, x1, y1, x2, y2)
 	c.g.delete_pen(pen)
+}
+
+struct RectF {
+	x f32
+	y f32
+	w f32
+	h f32
+}
+
+// GdipFont is a bold pixel-sized font; release it with free_font().
+struct GdipFont {
+	family voidptr
+	font   voidptr
+}
+
+fn (c Canvas) new_font(name string, px f32) ?GdipFont {
+	family := unsafe { nil }
+	if c.g.font_family(name.to_wide(), unsafe { nil }, &family) != 0 || family == unsafe { nil } {
+		return none
+	}
+	font := unsafe { nil }
+	if c.g.create_font(family, px, gdip_font_bold, gdip_unit_pixel, &font) != 0
+		|| font == unsafe { nil } {
+		c.g.delete_family(family)
+		return none
+	}
+	c.g.text_hint(c.gr, gdip_text_antialias)
+	return GdipFont{family, font}
+}
+
+fn (c Canvas) free_font(f GdipFont) {
+	c.g.delete_font(f.font)
+	c.g.delete_family(f.family)
+}
+
+fn (c Canvas) text_size(text string, f GdipFont) (f32, f32) {
+	layout := RectF{0, 0, 10000, 10000}
+	box := RectF{}
+	c.g.measure_raw(c.gr, text.to_wide(), -1, f.font, &layout, unsafe { nil }, &box, unsafe { nil },
+		unsafe { nil })
+	return box.w, box.h
+}
+
+// outlined_text draws `text` with its top-left at (x, y) and a dark rim so
+// it reads on light and dark map areas alike.
+fn (c Canvas) outlined_text(x f32, y f32, text string, f GdipFont, color u32) {
+	wide := text.to_wide()
+	shadow := unsafe { nil }
+	c.g.create_fill(0xe0000000, &shadow)
+	for o in [[f32(-1), 0], [f32(1), 0], [f32(0), -1], [f32(0), 1],
+		[f32(1), 1]] {
+		rc := RectF{x + o[0], y + o[1], 10000, 10000}
+		c.g.draw_string_raw(c.gr, wide, -1, f.font, &rc, unsafe { nil }, shadow)
+	}
+	c.g.delete_brush(shadow)
+	brush := unsafe { nil }
+	c.g.create_fill(color, &brush)
+	rc := RectF{x, y, 10000, 10000}
+	c.g.draw_string_raw(c.gr, wide, -1, f.font, &rc, unsafe { nil }, brush)
+	c.g.delete_brush(brush)
 }
