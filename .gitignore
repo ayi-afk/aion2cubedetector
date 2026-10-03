@@ -1,0 +1,9 @@
+# Release archives made by build.bat
+*.rar
+
+# Private settings (Discord webhook for upload.bat)
+.env
+
+# Build outputs
+*.exe
+build_stamp.v
