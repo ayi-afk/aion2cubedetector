@@ -28,6 +28,17 @@ mut:
 	compass_version int
 	// Cubes farther than this (planar world units) are left off the compass; 0 = no limit.
 	compass_range int = default_compass_range
+	// Map overlay over the game's minimap: game UI proportion (%), world units
+	// across the minimap, marker opacity (%) and a moved position as fractions
+	// of the screen (width 0 = default spot for the UI proportion).
+	overlay         bool
+	overlay_ui_pct  int = 100
+	overlay_zoom    int = default_overlay_zoom
+	overlay_opacity int = 100
+	overlay_x       f64
+	overlay_y       f64
+	overlay_w       f64
+	overlay_h       f64
 	// Compact view: only position and compass; it keeps its own window size.
 	theme          string = theme_system // system / light / dark
 	compact        bool
@@ -67,6 +78,15 @@ fn load_settings() Settings {
 			s.north_deg = proto.default_north_deg
 		}
 		s.compass_version = 1
+	}
+	if s.overlay_ui_pct !in ui_proportion_pcts {
+		s.overlay_ui_pct = 100
+	}
+	if s.overlay_zoom < overlay_zoom_min || s.overlay_zoom > overlay_zoom_max {
+		s.overlay_zoom = default_overlay_zoom
+	}
+	if s.overlay_opacity !in overlay_opacities {
+		s.overlay_opacity = 100
 	}
 	if s.compass_range !in compass_ranges {
 		s.compass_range = default_compass_range

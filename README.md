@@ -74,6 +74,30 @@ shrinks the window to your position, the compass and a "Standard view"
 button - handy with "Always on top" and lower opacity over the game. Each
 view remembers its own window size.
 
+## Map overlay
+
+"Map overlay" (bottom row, or the tray menu) lays a transparent,
+click-through window over the game's minimap and marks each cube in its
+list color (nearest is larger; cubes beyond the minimap edge get an arrow
+on the rim; cubes outside "Compass range" are left out). The game must run
+in borderless / windowed mode - nothing can draw over exclusive fullscreen.
+
+- "Game UI": your in-game Edit HUD > UI Proportion (Smaller 88 %, Small
+  94 %, Medium 100 %, Large ~109 % (estimated), Larger 118 %). The default
+  spot is the minimap's top-right position with outer margin "None", as a
+  share of the primary screen's height, so it fits any resolution.
+- "Unlock": drag the overlay onto the minimap, drag edges to resize; the
+  cross marks the player arrow. Right-click it or "Lock" to make it
+  click-through again. The position is kept as a share of the screen;
+  "Reset" goes back to the default spot.
+- "Map zoom": world units across the minimap width. To set it exactly:
+  unlock, walk away from a recognizable spot and stop; a white X marks
+  where you started - scroll the mouse wheel over the overlay until the X
+  sits on that spot of the minimap (5 % per notch).
+- "Opacity": marker transparency.
+
+Markers move when the game reports your position (on stop / landing).
+
 ## Replay
 
 - `cube_watch.exe --replay capture.pcapng` plays a saved capture into the

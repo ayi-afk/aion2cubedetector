@@ -27,9 +27,26 @@ type FnGdipFillEllipse = fn (voidptr, voidptr, f32, f32, f32, f32) int
 
 type FnGdipDrawEllipse = fn (voidptr, voidptr, f32, f32, f32, f32) int
 
+type FnGdipCreateBitmapFromScan0 = fn (int, int, int, int, voidptr, &voidptr) int
+
+type FnGdipGetImageGraphicsContext = fn (voidptr, &voidptr) int
+
+type FnGdipDisposeImage = fn (voidptr) int
+
+type FnGdipGraphicsClear = fn (voidptr, u32) int
+
+type FnGdipFillRectangle = fn (voidptr, voidptr, f32, f32, f32, f32) int
+
+type FnGdipDrawRectangle = fn (voidptr, voidptr, f32, f32, f32, f32) int
+
+type FnGdipDrawLine = fn (voidptr, voidptr, f32, f32, f32, f32) int
+
+type FnGdipDrawPolygon = fn (voidptr, voidptr, voidptr, int) int
+
 const gdip_smoothing_antialias = 4
 const gdip_unit_pixel = 2
 const gdip_fill_alternate = 0
+const gdip_format_32bpp_pargb = 0x000E200B
 
 struct GdiplusStartupInput {
 	version            u32 = 1
@@ -54,12 +71,23 @@ struct Gdip {
 	fill_polygon_raw FnGdipFillPolygon      = unsafe { nil }
 	fill_ellipse_raw FnGdipFillEllipse      = unsafe { nil }
 	draw_ellipse_raw FnGdipDrawEllipse      = unsafe { nil }
+	// Off-screen drawing for the per-pixel-alpha overlay window.
+	create_bitmap  FnGdipCreateBitmapFromScan0   = unsafe { nil }
+	image_graphics FnGdipGetImageGraphicsContext = unsafe { nil }
+	dispose_image  FnGdipDisposeImage            = unsafe { nil }
+	clear          FnGdipGraphicsClear           = unsafe { nil }
+	fill_rect_raw  FnGdipFillRectangle           = unsafe { nil }
+	draw_rect_raw  FnGdipDrawRectangle           = unsafe { nil }
+	draw_line_raw  FnGdipDrawLine                = unsafe { nil }
+	draw_poly_raw  FnGdipDrawPolygon             = unsafe { nil }
 }
 
 fn load_gdip() ?Gdip {
 	names := ['GdiplusStartup', 'GdipCreateFromHDC', 'GdipDeleteGraphics', 'GdipSetSmoothingMode',
 		'GdipCreateSolidFill', 'GdipDeleteBrush', 'GdipCreatePen1', 'GdipDeletePen',
-		'GdipFillPolygon', 'GdipFillEllipse', 'GdipDrawEllipse']
+		'GdipFillPolygon', 'GdipFillEllipse', 'GdipDrawEllipse', 'GdipCreateBitmapFromScan0',
+		'GdipGetImageGraphicsContext', 'GdipDisposeImage', 'GdipGraphicsClear', 'GdipFillRectangle',
+		'GdipDrawRectangle', 'GdipDrawLine', 'GdipDrawPolygon']
 	mut f := []voidptr{}
 	for name in names {
 		p := proc_address('gdiplus.dll', name)
@@ -85,6 +113,14 @@ fn load_gdip() ?Gdip {
 		fill_polygon_raw: FnGdipFillPolygon(f[8])
 		fill_ellipse_raw: FnGdipFillEllipse(f[9])
 		draw_ellipse_raw: FnGdipDrawEllipse(f[10])
+		create_bitmap:    FnGdipCreateBitmapFromScan0(f[11])
+		image_graphics:   FnGdipGetImageGraphicsContext(f[12])
+		dispose_image:    FnGdipDisposeImage(f[13])
+		clear:            FnGdipGraphicsClear(f[14])
+		fill_rect_raw:    FnGdipFillRectangle(f[15])
+		draw_rect_raw:    FnGdipDrawRectangle(f[16])
+		draw_line_raw:    FnGdipDrawLine(f[17])
+		draw_poly_raw:    FnGdipDrawPolygon(f[18])
 	}
 }
 
@@ -127,4 +163,64 @@ fn (g &Gdip) circle(dc voidptr, cx f32, cy f32, r f32, face u32, edge u32) bool 
 	g.delete_pen(pen)
 	g.delete_graphics(gr)
 	return true
+}
+
+// Canvas draws on a GDI+ graphics with ARGB colors (alpha included).
+struct Canvas {
+	g  &Gdip
+	gr voidptr
+}
+
+// with_alpha turns a COLORREF into ARGB with the given alpha (0-255).
+fn with_alpha(c u32, alpha int) u32 {
+	return (u32(alpha) << 24) | (argb(c) & 0x00ffffff)
+}
+
+fn (c Canvas) fill_circle(x f32, y f32, r f32, color u32) {
+	brush := unsafe { nil }
+	c.g.create_fill(color, &brush)
+	c.g.fill_ellipse_raw(c.gr, brush, x - r, y - r, 2 * r, 2 * r)
+	c.g.delete_brush(brush)
+}
+
+fn (c Canvas) stroke_circle(x f32, y f32, r f32, width f32, color u32) {
+	pen := unsafe { nil }
+	c.g.create_pen(color, width, gdip_unit_pixel, &pen)
+	c.g.draw_ellipse_raw(c.gr, pen, x - r, y - r, 2 * r, 2 * r)
+	c.g.delete_pen(pen)
+}
+
+fn (c Canvas) fill_polygon(pts []PointF, color u32) {
+	brush := unsafe { nil }
+	c.g.create_fill(color, &brush)
+	c.g.fill_polygon_raw(c.gr, brush, pts.data, pts.len, gdip_fill_alternate)
+	c.g.delete_brush(brush)
+}
+
+fn (c Canvas) stroke_polygon(pts []PointF, width f32, color u32) {
+	pen := unsafe { nil }
+	c.g.create_pen(color, width, gdip_unit_pixel, &pen)
+	c.g.draw_poly_raw(c.gr, pen, pts.data, pts.len)
+	c.g.delete_pen(pen)
+}
+
+fn (c Canvas) fill_rect(x f32, y f32, w f32, h f32, color u32) {
+	brush := unsafe { nil }
+	c.g.create_fill(color, &brush)
+	c.g.fill_rect_raw(c.gr, brush, x, y, w, h)
+	c.g.delete_brush(brush)
+}
+
+fn (c Canvas) stroke_rect(x f32, y f32, w f32, h f32, width f32, color u32) {
+	pen := unsafe { nil }
+	c.g.create_pen(color, width, gdip_unit_pixel, &pen)
+	c.g.draw_rect_raw(c.gr, pen, x, y, w, h)
+	c.g.delete_pen(pen)
+}
+
+fn (c Canvas) line(x1 f32, y1 f32, x2 f32, y2 f32, width f32, color u32) {
+	pen := unsafe { nil }
+	c.g.create_pen(color, width, gdip_unit_pixel, &pen)
+	c.g.draw_line_raw(c.gr, pen, x1, y1, x2, y2)
+	c.g.delete_pen(pen)
 }

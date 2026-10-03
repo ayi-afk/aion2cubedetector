@@ -60,13 +60,24 @@ enum Ctl {
 	dark_mode
 	range_label
 	compass_range
+	overlay
+	overlay_ui_label
+	overlay_ui
+	overlay_zoom_label
+	overlay_zoom
+	overlay_opacity_label
+	overlay_opacity
+	overlay_unlock
+	overlay_reset
 }
 
 // Controls shown only in the standard (full) view.
 const standard_only_controls = [Ctl.status, .adapter_label, .adapter, .start_stop, .player, .redetect,
 	.nearest, .list, .clear, .copy, .sound_label, .sound_mode, .sound_file, .browse, .test_sound,
 	.opacity_label, .opacity, .opacity_value, .topmost, .close_to_tray, .dark_mode, .calibrate,
-	.rotate_north, .range_label, .compass_range]
+	.rotate_north, .range_label, .compass_range, .overlay, .overlay_ui_label, .overlay_ui,
+	.overlay_zoom_label, .overlay_zoom, .overlay_opacity_label, .overlay_opacity, .overlay_unlock,
+	.overlay_reset]
 
 // List view columns.
 const col_seen = 1
@@ -83,6 +94,8 @@ enum TrayCmd {
 	compact
 	dark_mode
 	calibrate
+	overlay
+	overlay_unlock
 	exit
 }
 
@@ -128,48 +141,56 @@ struct PlayerFix {
 @[heap]
 struct App {
 mut:
-	hwnd            voidptr
-	instance        voidptr
-	font            voidptr
-	bold_font       voidptr
-	theme           Theme
-	bg_brush        voidptr
-	field_brush     voidptr
-	icon            voidptr
-	dpi             int = 96
-	settings        Settings
-	start_hidden    bool
-	replay_path     string
-	trial           Trial
-	gdip            ?Gdip // antialiased compass drawing
-	trial_ended     bool
-	npcap           ?Npcap
-	devices         []Device
-	capture         &Capture = unsafe { nil }
-	restart_pending bool
-	status_is_error bool
-	elevated        bool
-	controls        map[int]voidptr
-	cubes           []CubeRow // newest first, matches list view order
-	cube_count      int
-	player          ?PlayerFix
-	player_id       ?u64
-	trend_ref       ?f64
-	trend_ref_time  f64
-	trend           f64
-	targets         []Target // nearest first
-	targets_stale   bool     // player position is old
-	calibrating     bool
-	calib_start     PlayerFix // position when calibration started
-	last_refresh    f64
-	last_redetect   f64 // last automatic player re-detection
-	status_text     string
-	install_visible bool
-	admin_visible   bool
-	dirty           bool
-	tray_added      bool
-	tray_hint_shown bool
-	taskbar_created u32
+	hwnd         voidptr
+	instance     voidptr
+	font         voidptr
+	bold_font    voidptr
+	theme        Theme
+	bg_brush     voidptr
+	field_brush  voidptr
+	icon         voidptr
+	dpi          int = 96
+	settings     Settings
+	start_hidden bool
+	replay_path  string
+	trial        Trial
+	gdip         ?Gdip // antialiased compass drawing
+	// Map overlay window (overlay.v); drag = edge bits while moving, -1 idle.
+	overlay_hwnd       voidptr
+	overlay_unlocked   bool
+	overlay_drag       int = -1
+	overlay_drag_pt    Point
+	overlay_drag_rect  Rect
+	overlay_topmost_at f64
+	overlay_ref        ?proto.Vec3 // zoom reference point while unlocked
+	trial_ended        bool
+	npcap              ?Npcap
+	devices            []Device
+	capture            &Capture = unsafe { nil }
+	restart_pending    bool
+	status_is_error    bool
+	elevated           bool
+	controls           map[int]voidptr
+	cubes              []CubeRow // newest first, matches list view order
+	cube_count         int
+	player             ?PlayerFix
+	player_id          ?u64
+	trend_ref          ?f64
+	trend_ref_time     f64
+	trend              f64
+	targets            []Target // nearest first
+	targets_stale      bool     // player position is old
+	calibrating        bool
+	calib_start        PlayerFix // position when calibration started
+	last_refresh       f64
+	last_redetect      f64 // last automatic player re-detection
+	status_text        string
+	install_visible    bool
+	admin_visible      bool
+	dirty              bool
+	tray_added         bool
+	tray_hint_shown    bool
+	taskbar_created    u32
 }
 
 fn (app &App) ctl(id Ctl) voidptr {
@@ -214,6 +235,16 @@ fn (mut app App) add(id Ctl, class string, text string, style u32, ex_style u32)
 	C.SendMessageW(hwnd, wm_setfont, usize(app.font), 1)
 	app.controls[int(id)] = hwnd
 	return hwnd
+}
+
+// add_choices adds a drop-down list with `items`, selecting `sel`.
+fn (mut app App) add_choices(id Ctl, items []string, sel int) voidptr {
+	combo := app.add(id, 'COMBOBOX', '', ws_tabstop | ws_vscroll | cbs_dropdownlist, 0)
+	for item in items {
+		C.SendMessageW(combo, cb_addstring, 0, ptr_param(item.to_wide()))
+	}
+	C.SendMessageW(combo, cb_setcursel, usize(sel), 0)
+	return combo
 }
 
 fn (mut app App) on_create() {
@@ -288,12 +319,22 @@ fn (mut app App) on_create() {
 		0)
 	C.SendMessageW(tray, bm_setcheck, usize(app.settings.close_to_tray), 0)
 	app.add(.dark_mode, 'BUTTON', 'Dark mode', ws_tabstop | bs_autocheckbox, 0)
+	app.add(.overlay, 'BUTTON', 'Map overlay', ws_tabstop | bs_autocheckbox, 0)
+	app.add(.overlay_ui_label, 'STATIC', 'Game UI:', 0, 0)
+	app.add_choices(.overlay_ui, ui_proportion_names, ui_proportion_pcts.index(app.settings.overlay_ui_pct))
+	app.add(.overlay_zoom_label, 'STATIC', 'Map zoom:', 0, 0)
+	app.add_choices(.overlay_zoom, overlay_zooms.map(format_units(it)), overlay_zooms.index(app.settings.overlay_zoom))
+	app.add(.overlay_opacity_label, 'STATIC', 'Opacity:', 0, 0)
+	app.add_choices(.overlay_opacity, overlay_opacities.map('${it} %'), overlay_opacities.index(app.settings.overlay_opacity))
+	app.add(.overlay_unlock, 'BUTTON', 'Unlock', ws_tabstop | bs_pushbutton, 0)
+	app.add(.overlay_reset, 'BUTTON', 'Reset', ws_tabstop | bs_pushbutton, 0)
 
 	app.taskbar_created = C.RegisterWindowMessageW('TaskbarCreated'.to_wide())
 	app.add_tray_icon()
 	app.apply_theme()
 	app.apply_opacity()
 	app.apply_topmost()
+	app.apply_overlay()
 	app.update_sound_controls()
 	app.layout()
 	C.SetTimer(app.hwnd, timer_refresh, 250, unsafe { nil })
@@ -407,7 +448,7 @@ fn (mut app App) layout() {
 	app.place(.nearest, m, y, w - 2 * m, row)
 	y += row
 
-	bottom_rows := 3
+	bottom_rows := 4
 	list_bottom := h - m - bottom_rows * row - (bottom_rows - 1) * gap - gap
 	compass_w := app.s(190)
 	list_h := math.max(list_bottom - y, app.s(60))
@@ -447,6 +488,25 @@ fn (mut app App) layout() {
 	app.place(.topmost, check_x, by, app.s(120), row)
 	app.place(.close_to_tray, check_x + app.s(120) + gap, by, app.s(120), row)
 	app.place(.dark_mode, check_x + 2 * (app.s(120) + gap), by, app.s(100), row)
+	by += row + gap
+
+	mut ox := m
+	for item in [[int(Ctl.overlay), 100], [int(Ctl.overlay_ui_label), 54],
+		[int(Ctl.overlay_ui), 86], [int(Ctl.overlay_zoom_label), 64],
+		[int(Ctl.overlay_zoom), 80], [int(Ctl.overlay_opacity_label), 52],
+		[int(Ctl.overlay_opacity), 66], [int(Ctl.overlay_unlock), 70],
+		[int(Ctl.overlay_reset), 60]] {
+		id := unsafe { Ctl(item[0]) }
+		cw := app.s(item[1])
+		is_label := id in [.overlay_ui_label, .overlay_zoom_label, .overlay_opacity_label]
+		is_combo := id in [.overlay_ui, .overlay_zoom, .overlay_opacity]
+		app.place(id, ox, if is_label { by + text_off } else { by }, cw, if is_combo {
+			app.s(200)
+		} else {
+			row
+		})
+		ox += cw + if is_label { 0 } else { gap }
+	}
 }
 
 fn (app &App) place(id Ctl, x int, y int, w int, h int) {
@@ -930,6 +990,7 @@ fn (mut app App) refresh_distances() {
 fn (mut app App) set_targets(targets []Target, stale bool) {
 	app.targets = targets
 	app.targets_stale = stale
+	app.render_overlay()
 	C.InvalidateRect(app.ctl(.compass), unsafe { nil }, 0)
 	C.InvalidateRect(app.ctl(.list), unsafe { nil }, 0) // row colors follow state
 }
@@ -1143,6 +1204,15 @@ fn (mut app App) tray_menu() {
 	C.AppendMenuW(menu, mf_string | if app.settings.compact { mf_checked } else { u32(0) },
 		usize(int(TrayCmd.compact)), 'Compact view'.to_wide())
 	C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.calibrate)), 'Calibrate north'.to_wide())
+	C.AppendMenuW(menu, mf_string | if app.settings.overlay { mf_checked } else { u32(0) },
+		usize(int(TrayCmd.overlay)), 'Map overlay'.to_wide())
+	if app.settings.overlay {
+		C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.overlay_unlock)), if app.overlay_unlocked {
+			'Lock map overlay'.to_wide()
+		} else {
+			'Unlock map overlay (move / resize)'.to_wide()
+		})
+	}
 	C.AppendMenuW(menu, mf_string | if app.theme.dark { mf_checked } else { u32(0) },
 		usize(int(TrayCmd.dark_mode)), 'Dark mode'.to_wide())
 	C.AppendMenuW(menu, mf_separator, 0, unsafe { nil })
@@ -1174,6 +1244,12 @@ fn (mut app App) tray_menu() {
 		int(TrayCmd.calibrate) {
 			app.show_window()
 			app.toggle_calibration()
+		}
+		int(TrayCmd.overlay) {
+			app.set_overlay(!app.settings.overlay)
+		}
+		int(TrayCmd.overlay_unlock) {
+			app.set_overlay_unlocked(!app.overlay_unlocked)
 		}
 		int(TrayCmd.exit) {
 			C.DestroyWindow(app.hwnd)
@@ -1312,6 +1388,20 @@ fn (mut app App) on_command(id int, code int) {
 				app.browse_sound()
 			}
 		}
+		int(Ctl.overlay) {
+			app.set_overlay(C.SendMessageW(app.ctl(.overlay), bm_getcheck, 0, 0) == 1)
+		}
+		int(Ctl.overlay_ui), int(Ctl.overlay_zoom), int(Ctl.overlay_opacity) {
+			if code == cbn_selchange {
+				app.on_overlay_choice(unsafe { Ctl(id) })
+			}
+		}
+		int(Ctl.overlay_unlock) {
+			app.set_overlay_unlocked(!app.overlay_unlocked)
+		}
+		int(Ctl.overlay_reset) {
+			app.reset_overlay_position()
+		}
 		int(Ctl.compass_range) {
 			if code != cbn_selchange {
 				return
@@ -1320,6 +1410,7 @@ fn (mut app App) on_command(id int, code int) {
 			if sel >= 0 && sel < compass_ranges.len {
 				app.settings.compass_range = compass_ranges[sel]
 				app.save()
+				app.render_overlay()
 				C.InvalidateRect(app.ctl(.compass), unsafe { nil }, 0)
 			}
 		}
@@ -1370,6 +1461,7 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 				}
 				app.prune_cubes()
 				app.auto_redetect()
+				app.keep_overlay_on_top()
 				// Keeps the position age and the update dot in the corner live.
 				C.InvalidateRect(app.ctl(.compass), unsafe { nil }, 0)
 				// Position ages are shown in seconds; redraw at least once a second.
@@ -1431,7 +1523,7 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			info.min_track = if app.settings.compact {
 				Point{app.s(180), app.s(230)}
 			} else {
-				Point{app.s(640), app.s(360)}
+				Point{app.s(640), app.s(400)}
 			}
 			return 0
 		}
@@ -1476,6 +1568,9 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			return 0
 		}
 		wm_destroy {
+			if app.overlay_hwnd != unsafe { nil } {
+				C.DestroyWindow(app.overlay_hwnd)
+			}
 			app.save()
 			app.capture.request_stop()
 			app.remove_tray_icon()
@@ -1620,6 +1715,7 @@ fn run_app(start_hidden bool, replay_path string) int {
 	app.font = ui_font()
 	app.bold_font = bold_ui_font()
 	register_compass_class(app.instance)
+	register_overlay_class(app.instance)
 	app.icon = make_cube_icon()
 
 	cls := WndClassEx{

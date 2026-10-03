@@ -159,9 +159,10 @@ fn set_dark_title_bar(hwnd voidptr, dark bool) {
 
 // Controls grouped by how they are themed.
 const themed_push_buttons = [Ctl.install_npcap, .run_as_admin, .start_stop, .redetect, .view_toggle,
-	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north]
-const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode]
-const themed_fields = [Ctl.adapter, .sound_mode, .sound_file]
+	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north, .overlay_unlock, .overlay_reset]
+const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode, .overlay]
+const themed_fields = [Ctl.adapter, .sound_mode, .sound_file, .compass_range, .overlay_ui,
+	.overlay_zoom, .overlay_opacity]
 
 // apply_theme recolors every control for the current theme setting.
 fn (mut app App) apply_theme() {
@@ -199,6 +200,7 @@ fn (mut app App) apply_theme() {
 		lvs_ex_gridlines
 	})
 	C.SendMessageW(app.ctl(.dark_mode), bm_setcheck, usize(dark), 0)
+	app.render_overlay() // contested color follows the theme
 	if app.ctl(.opacity) != unsafe { nil } {
 		app.create_opacity_bar()
 	}
