@@ -41,6 +41,11 @@ position is older than 15 s, Cube Watch detects your character again
 automatically (every 15 s until a fresh position arrives) and keeps the
 last position on screen meanwhile; "Re-detect player" does it right away.
 
+Position freshness (square next to your X / Y on the compass, ring around
+your arrow on the map overlay): green = updated in the last 5 s, yellow =
+up to 15 s, red = older. While re-detecting, the last X / Y / Z stay on
+screen in yellow until a new position arrives.
+
 Cubes farther away than "Compass range" (next to "Copy XYZ": 10,000 /
 20,000 / 30,000 / 50,000 / 100,000 units or Unlimited, default 30,000) get
 no arrow; the legend counts them as "too far" and they stay in the list.

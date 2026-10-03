@@ -421,6 +421,7 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 			c.fill_rect(p[0], p[1], grip, grip, accent)
 		}
 	}
+	app.draw_freshness_ring(c, cx, cy, fw)
 	// World units -> overlay pixels; map north is up (compass bearing 0).
 	scale := fw / f32(app.settings.overlay_zoom)
 	if app.overlay_unlocked {
@@ -643,4 +644,18 @@ fn (app &App) draw_zoom_reference(c Canvas, cx f32, cy f32, scale f32) {
 		c.line(x - arm, y - arm, x + arm, y + arm, width, color)
 		c.line(x - arm, y + arm, x + arm, y - arm, width, color)
 	}
+}
+
+// draw_freshness_ring circles the player arrow: green = position updated in
+// the last 5 s, yellow = up to 15 s, red = older (re-detecting) or none yet.
+fn (app &App) draw_freshness_ring(c Canvas, cx f32, cy f32, fw f32) {
+	color := if p := app.player {
+		app.freshness_color(now_seconds() - p.timestamp)
+	} else {
+		app.theme.error
+	}
+	r := fw * 0.085
+	width := f32(math.max(2.0, f64(fw) * 0.008))
+	c.stroke_circle(cx, cy, r, width + 2, 0xa0000000)
+	c.stroke_circle(cx, cy, r, width, with_alpha(color, 235))
 }

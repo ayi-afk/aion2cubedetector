@@ -12,6 +12,8 @@ struct Theme {
 	text       u32
 	dim        u32 // secondary text
 	error      u32
+	warn       u32 // yellow: old position kept while re-detecting
+	fresh      u32 // green: position just updated
 	contested  u32
 	dial_face  u32
 	dial_edge  u32
@@ -26,6 +28,8 @@ const light_theme = Theme{
 	text:       0x00000000
 	dim:        0x00606060
 	error:      0x002020C0
+	warn:       0x000090B8
+	fresh:      0x00209020
 	contested:  0x00007FE0
 	dial_face:  0x00FFFFFF
 	dial_edge:  0x00909090
@@ -42,6 +46,8 @@ const dark_theme = Theme{
 	text:       0x00E8E8E8
 	dim:        0x00A8A8A8
 	error:      0x006A6AFF
+	warn:       0x0030D0F0
+	fresh:      0x0040C040
 	contested:  0x0040A8FF
 	dial_face:  0x00303030
 	dial_edge:  0x00707070

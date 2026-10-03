@@ -1,7 +1,3 @@
 # Fixes / changes for the next upload, one per line ('#' lines are ignored).
 # upload.bat posts them with the build and then clears this list.
-Player is detected again automatically when the position is older than 15 s (e.g. after entering an instance)
-Map overlay: cube markers drawn over the game minimap (UI Proportion setting, unlock to move/resize, mouse-wheel zoom, opacity)
-Compass range drop-down now follows dark mode
-Map overlay markers show an up/down arrow (cube above/below you) and the flat distance, e.g. 2.7k
-Map overlay: "!" over a cube that is being opened, red X for 5 s where a cube was taken
+Position freshness: green (<5 s) / yellow (<15 s) / red square on the compass and ring around your arrow on the overlay; old coordinates stay in yellow while re-detecting

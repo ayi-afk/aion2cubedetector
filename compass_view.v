@@ -228,24 +228,17 @@ fn (app &App) draw_position(dc voidptr, w int, line int) int {
 
 	age := now_seconds() - p.timestamp
 	dot := app.s(8)
-	fresh := age < 1.0
-	dot_color := if fresh {
-		u32(0x0040C040)
-	} else if age > stale_position_seconds {
-		app.theme.error
-	} else {
-		app.theme.dial_edge
-	}
-	brush := C.CreateSolidBrush(dot_color)
+	brush := C.CreateSolidBrush(app.freshness_color(age))
 	mut box := Rect{0, (line - dot) / 2, dot, (line + dot) / 2}
 	C.FillRect(dc, &box, brush)
 	C.DeleteObject(brush)
-	C.SetTextColor(dc, app.theme.text)
+	// While re-detecting the old position stays on screen, in yellow.
+	redetecting := age >= player_redetect_seconds
+	C.SetTextColor(dc, if redetecting { app.theme.warn } else { app.theme.text })
 	x := dot + app.s(4)
 	draw_text_aligned(dc, 'X ${format_signed(p.pos.x)}  Y ${format_signed(p.pos.y)}',
 		x, 0, w, line, dt_left)
-	age_color := if age > stale_position_seconds { app.theme.error } else { app.theme.dim }
-	C.SetTextColor(dc, age_color)
+	C.SetTextColor(dc, if redetecting { app.theme.warn } else { app.theme.dim })
 	draw_text_aligned(dc, 'Z ${format_signed(p.pos.z)}  (${age:.0f}s ago)', x, line, w,
 		2 * line, dt_left)
 	return 2 * line

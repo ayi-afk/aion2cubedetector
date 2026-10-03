@@ -25,6 +25,9 @@ const stale_position_seconds = 10.0
 // it are ignored; past this age the player is detected again (and again
 // every this many seconds while no fresh position arrives).
 const player_redetect_seconds = 15.0
+// Position freshness shown by the compass dot and the overlay ring: green
+// below this age, yellow until player_redetect_seconds, then red.
+const fresh_position_seconds = 5.0
 // Minimum distance change (world units) reported as moving closer/farther.
 const trend_threshold = 10.0
 // Opened or vanished cubes stay listed (greyed) this long, then are removed.
@@ -785,6 +788,17 @@ fn (mut app App) auto_redetect() {
 	app.capture.request_player_reset()
 }
 
+// freshness_color: green / yellow / red for the age of the last position.
+fn (app &App) freshness_color(age f64) u32 {
+	return if age < fresh_position_seconds {
+		app.theme.fresh
+	} else if age < player_redetect_seconds {
+		app.theme.warn
+	} else {
+		app.theme.error
+	}
+}
+
 fn (app &App) is_self(id u64) bool {
 	self_id := app.player_id or { return false }
 	return self_id == id
@@ -936,7 +950,8 @@ fn (mut app App) refresh_distances() {
 	}
 
 	age := now - p.timestamp
-	set_text(app.ctl(.player), 'Player: (${format_pos(p.pos)}) - updated ${age:.0f}s ago${id_text}')
+	redetect := if age >= player_redetect_seconds { ' - re-detecting your character' } else { '' }
+	set_text(app.ctl(.player), 'Player: (${format_pos(p.pos)}) - updated ${age:.0f}s ago${redetect}${id_text}')
 
 	compass := app.compass()
 	mut targets := []Target{}
