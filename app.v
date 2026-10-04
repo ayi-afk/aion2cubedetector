@@ -1460,9 +1460,24 @@ fn (mut app App) on_command(id int, code int) {
 			app.browse_sound()
 		}
 		int(Ctl.test_sound) {
+			if app.settings.sound_mode == .custom && app.settings.sound_file == '' {
+				// Nothing chosen yet: pick the file first, then play it.
+				app.browse_sound()
+				if app.settings.sound_file == '' {
+					app.set_status('Choose a sound file for "Custom file" (Browse...).',
+						false)
+					return
+				}
+			}
 			play_alert(app.settings.sound_mode, app.settings.sound_file) or {
 				app.set_status('Alert sound failed: ${err}', true)
+				return
 			}
+			app.set_status('Playing the alert sound${if app.settings.sound_mode == .custom {
+				': ' + os.file_name(app.settings.sound_file)
+			} else {
+				''
+			}}.', false)
 		}
 		int(Ctl.topmost) {
 			app.settings.topmost = C.SendMessageW(app.ctl(.topmost), bm_getcheck, 0, 0) == 1

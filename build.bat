@@ -7,7 +7,9 @@ cd /d "%~dp0"
 tasklist /fi "imagename eq cube_watch.exe" | findstr /i "cube_watch.exe" >nul && (echo cube_watch.exe is running - close it first ^(tray: Exit^) & exit /b 1)
 v test proto || exit /b 1
 v run tools\stamp build_stamp.v || exit /b 1
-v -subsystem windows -o cube_watch.exe . || exit /b 1
+rem no_backtrace: V's first-chance exception handler would walk stacks inside
+rem shell / codec components that throw and catch exceptions (file dialog, MP3).
+v -d no_backtrace -subsystem windows -o cube_watch.exe . || exit /b 1
 echo Built cube_watch.exe
 
 for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HHmm"') do set BUILD_DATE=%%d

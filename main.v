@@ -9,6 +9,8 @@ const wait_object_0 = u32(0)
 const wait_abandoned = u32(0x80)
 
 fn main() {
+	setup_diagnostics()
+	init_com()
 	start_hidden := '--tray' in os.args
 	// `--replay capture.pcapng` plays a saved capture into the window in
 	// real time; it runs alongside a normal instance.

@@ -152,7 +152,7 @@ or manually:
 ```bat
 v test proto
 v run tools\stamp build_stamp.v
-v -subsystem windows -o cube_watch.exe .
+v -d no_backtrace -subsystem windows -o cube_watch.exe .
 ```
 
 ## Upload
@@ -198,6 +198,10 @@ If a source moves to a different root CA, add that root (PEM) to
   root certificates for the time sources, build stamp generator.
 
 ## Notes
+
+- Problems are logged to `%APPDATA%\CubeWatch\log.txt`: V panics and native
+  crashes with the module (DLL) they happened in. Send that file along with
+  a bug report.
 
 - The title bar shows the privilege check, e.g.
   `Cube Watch - standard user | Npcap: all users`. If Npcap was installed

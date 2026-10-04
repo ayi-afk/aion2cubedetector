@@ -1,3 +1,3 @@
 # Fixes / changes for the next upload, one per line ('#' lines are ignored).
 # upload.bat posts them with the build and then clears this list.
-Position freshness: green (<5 s) / yellow (<15 s) / red square on the compass and ring around your arrow on the overlay; old coordinates stay in yellow while re-detecting
+Custom sound: fixed crashes with the file picker / MP3 playback (COM initialised, V exception handler off); Test without a file opens the picker; crashes are logged to %APPDATA%\CubeWatch\log.txt
