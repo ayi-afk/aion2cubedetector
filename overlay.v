@@ -685,8 +685,9 @@ fn (app &App) draw_freshness_ring(c Canvas, cx f32, cy f32, fw f32) {
 	} else {
 		app.theme.error
 	}
-	// Slider value 1 = the base radius; each step adds a pixel.
-	r := fw * 0.085 + f32(app.settings.overlay_ring_radius - 1)
+	// Slider: 100 = the full default radius, 1 = a 1 px ring, linear between.
+	full := fw * 0.085
+	r := 1 + (full - 1) * f32(app.settings.overlay_ring_size - 1) / f32(ring_size_max - 1)
 	width := f32(math.max(2.0, f64(fw) * 0.008))
 	c.stroke_circle(cx, cy, r, width + 2, 0xa0000000)
 	c.stroke_circle(cx, cy, r, width, with_alpha(color, 235))
@@ -732,8 +733,8 @@ fn (app &App) draw_history_spots(c Canvas, cx f32, cy f32, fw f32, fh f32, scale
 
 // ---- overlay sliders ------------------------------------------------------------
 
-// Ring radius slider: 1 = the default radius, up to this many (+1 px each).
-const ring_radius_max = 50
+// Ring radius slider: ring_size_max = the default (largest) radius, 1 = 1 px.
+const ring_size_max = 100
 
 fn (app &App) auto_clear_text() string {
 	m := app.settings.auto_clear_minutes
@@ -745,7 +746,7 @@ fn (app &App) auto_clear_text() string {
 fn (mut app App) create_trackbars() {
 	for spec in [
 		[int(Ctl.xyz_alpha), 10, 100, app.settings.overlay_xyz_alpha],
-		[int(Ctl.ring_radius), 1, ring_radius_max, app.settings.overlay_ring_radius],
+		[int(Ctl.ring_radius), 1, ring_size_max, app.settings.overlay_ring_size],
 		[int(Ctl.auto_clear), 0, 60, app.settings.auto_clear_minutes],
 	] {
 		id := unsafe { Ctl(spec[0]) }
@@ -767,7 +768,7 @@ fn (mut app App) on_overlay_slider(bar voidptr, done bool) {
 		app.settings.overlay_xyz_alpha = pos
 		app.render_overlay()
 	} else if bar == app.ctl(.ring_radius) {
-		app.settings.overlay_ring_radius = pos
+		app.settings.overlay_ring_size = pos
 		app.render_overlay()
 	} else {
 		app.settings.auto_clear_minutes = pos

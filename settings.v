@@ -41,12 +41,12 @@ mut:
 	overlay_h       f64
 	// Overlay extras: your X / Y / Z above the minimap, the freshness ring and
 	// its radius (1 = default, +1 px per step), history dots from data/cubes_*.csv.
-	overlay_xyz         bool   = true
-	overlay_ring        bool   = true
-	overlay_ring_radius int    = 1
-	overlay_xyz_alpha   int    = 60    // % opacity of the X / Y / Z line
-	xyz_order           string = 'XYZ' // axis order of the X / Y / Z line
-	overlay_history     bool
+	overlay_xyz       bool   = true
+	overlay_ring      bool   = true
+	overlay_ring_size int    = ring_size_max // ring radius, 100 = default = largest
+	overlay_xyz_alpha int    = 60            // % opacity of the X / Y / Z line
+	xyz_order         string = 'XYZ'         // axis order of the X / Y / Z line
+	overlay_history   bool
 	// Cubes older than this many minutes leave the list (0 = never).
 	auto_clear_minutes int = 20
 	// Compact view: only position and compass; it keeps its own window size.
@@ -98,7 +98,7 @@ fn load_settings() Settings {
 	if s.overlay_opacity !in overlay_opacities {
 		s.overlay_opacity = 100
 	}
-	s.overlay_ring_radius = clamp(s.overlay_ring_radius, 1, ring_radius_max)
+	s.overlay_ring_size = clamp(s.overlay_ring_size, 1, ring_size_max)
 	s.overlay_xyz_alpha = clamp(s.overlay_xyz_alpha, 10, 100)
 	if s.xyz_order !in xyz_orders {
 		s.xyz_order = 'XYZ'

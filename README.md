@@ -119,7 +119,7 @@ Markers move when the game reports your position (on stop / landing).
   (also for the compass corner) - the one marked with a star reads like the
   map: east-west axis, north-south axis, height.
 - "Ring" and its slider: show / hide the freshness ring around your arrow
-  and set its radius (leftmost = the default, +1 px per step).
+  and set its radius (rightmost = the default and largest, leftmost = 1 px).
 - "Auto-clear" slider: cubes older than this leave the list (default
   20 min, far left = off). "Clear list" (or "Clear cubes" in the tray menu)
   empties it at once, e.g. for a cube stuck under the ground.
