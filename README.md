@@ -116,7 +116,7 @@ Markers move when the game reports your position (on stop / landing).
 - "XYZ": your position centred just above the minimap, colored like the
   freshness ring (green / yellow / red).
 - "Ring" and its slider: show / hide the freshness ring around your arrow
-  and make it thicker (leftmost = the thin default, +1 px per step).
+  and set its radius (leftmost = the default, +1 px per step).
 - "Auto-clear" slider: cubes older than this leave the list (default
   20 min, far left = off). "Clear list" (or "Clear cubes" in the tray menu)
   empties it at once, e.g. for a cube stuck under the ground.

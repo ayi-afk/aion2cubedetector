@@ -679,9 +679,9 @@ fn (app &App) draw_freshness_ring(c Canvas, cx f32, cy f32, fw f32) {
 	} else {
 		app.theme.error
 	}
-	r := fw * 0.085
-	// Slider value 1 = the base thickness; each step adds a pixel.
-	width := f32(math.max(2.0, f64(fw) * 0.008)) + f32(app.settings.overlay_ring_width - 1)
+	// Slider value 1 = the base radius; each step adds a pixel.
+	r := fw * 0.085 + f32(app.settings.overlay_ring_radius - 1)
+	width := f32(math.max(2.0, f64(fw) * 0.008))
 	c.stroke_circle(cx, cy, r, width + 2, 0xa0000000)
 	c.stroke_circle(cx, cy, r, width, with_alpha(color, 235))
 }
@@ -724,16 +724,21 @@ fn (app &App) draw_history_spots(c Canvas, cx f32, cy f32, fw f32, fh f32, scale
 
 // ---- overlay sliders ------------------------------------------------------------
 
+// Ring radius slider: 1 = the default radius, up to this many (+1 px each).
+const ring_radius_max = 50
+
 fn (app &App) auto_clear_text() string {
 	m := app.settings.auto_clear_minutes
 	return if m == 0 { 'Auto-clear: off' } else { 'Auto-clear: ${m} min' }
 }
 
-// create_trackbars (re)creates the ring thickness and auto-clear sliders;
+// create_trackbars (re)creates the ring radius and auto-clear sliders;
 // trackbars keep their old colors, so a theme change recreates them.
 fn (mut app App) create_trackbars() {
-	for spec in [[int(Ctl.ring_width), 1, 10, app.settings.overlay_ring_width],
-		[int(Ctl.auto_clear), 0, 60, app.settings.auto_clear_minutes]] {
+	for spec in [
+		[int(Ctl.ring_radius), 1, ring_radius_max, app.settings.overlay_ring_radius],
+		[int(Ctl.auto_clear), 0, 60, app.settings.auto_clear_minutes],
+	] {
 		id := unsafe { Ctl(spec[0]) }
 		old := app.ctl(id)
 		bar := app.add(id, 'msctls_trackbar32', '', ws_tabstop, 0)
@@ -749,8 +754,8 @@ fn (mut app App) create_trackbars() {
 
 fn (mut app App) on_overlay_slider(bar voidptr, done bool) {
 	pos := int(C.SendMessageW(bar, tbm_getpos, 0, 0))
-	if bar == app.ctl(.ring_width) {
-		app.settings.overlay_ring_width = pos
+	if bar == app.ctl(.ring_radius) {
+		app.settings.overlay_ring_radius = pos
 		app.render_overlay()
 	} else {
 		app.settings.auto_clear_minutes = pos

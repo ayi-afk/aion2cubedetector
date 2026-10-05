@@ -40,11 +40,11 @@ mut:
 	overlay_w       f64
 	overlay_h       f64
 	// Overlay extras: your X / Y / Z above the minimap, the freshness ring and
-	// its extra thickness (1 = thinnest), history dots from data/cubes_*.csv.
-	overlay_xyz        bool = true
-	overlay_ring       bool = true
-	overlay_ring_width int  = 1
-	overlay_history    bool
+	// its radius (1 = default, +1 px per step), history dots from data/cubes_*.csv.
+	overlay_xyz         bool = true
+	overlay_ring        bool = true
+	overlay_ring_radius int  = 1
+	overlay_history     bool
 	// Cubes older than this many minutes leave the list (0 = never).
 	auto_clear_minutes int = 20
 	// Compact view: only position and compass; it keeps its own window size.
@@ -96,7 +96,7 @@ fn load_settings() Settings {
 	if s.overlay_opacity !in overlay_opacities {
 		s.overlay_opacity = 100
 	}
-	s.overlay_ring_width = clamp(s.overlay_ring_width, 1, 10)
+	s.overlay_ring_radius = clamp(s.overlay_ring_radius, 1, ring_radius_max)
 	s.auto_clear_minutes = clamp(s.auto_clear_minutes, 0, 60)
 	if s.compass_range !in compass_ranges {
 		s.compass_range = default_compass_range
