@@ -57,6 +57,8 @@ type FnGdipMeasureString = fn (voidptr, &u16, int, voidptr, voidptr, voidptr, vo
 
 type FnGdipSetTextRenderingHint = fn (voidptr, int) int
 
+type FnGdipTranslateWorldTransform = fn (voidptr, f32, f32, int) int
+
 const gdip_smoothing_antialias = 4
 const gdip_unit_pixel = 2
 const gdip_fill_alternate = 0
@@ -104,6 +106,7 @@ struct Gdip {
 	draw_string_raw FnGdipDrawString               = unsafe { nil }
 	measure_raw     FnGdipMeasureString            = unsafe { nil }
 	text_hint       FnGdipSetTextRenderingHint     = unsafe { nil }
+	translate       FnGdipTranslateWorldTransform  = unsafe { nil }
 }
 
 fn load_gdip() ?Gdip {
@@ -113,7 +116,7 @@ fn load_gdip() ?Gdip {
 		'GdipGetImageGraphicsContext', 'GdipDisposeImage', 'GdipGraphicsClear', 'GdipFillRectangle',
 		'GdipDrawRectangle', 'GdipDrawLine', 'GdipDrawPolygon', 'GdipCreateFontFamilyFromName',
 		'GdipDeleteFontFamily', 'GdipCreateFont', 'GdipDeleteFont', 'GdipDrawString',
-		'GdipMeasureString', 'GdipSetTextRenderingHint']
+		'GdipMeasureString', 'GdipSetTextRenderingHint', 'GdipTranslateWorldTransform']
 	mut f := []voidptr{}
 	for name in names {
 		p := proc_address('gdiplus.dll', name)
@@ -154,6 +157,7 @@ fn load_gdip() ?Gdip {
 		draw_string_raw:  FnGdipDrawString(f[23])
 		measure_raw:      FnGdipMeasureString(f[24])
 		text_hint:        FnGdipSetTextRenderingHint(f[25])
+		translate:        FnGdipTranslateWorldTransform(f[26])
 	}
 }
 

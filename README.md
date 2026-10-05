@@ -111,6 +111,37 @@ with the other settings and restored on the next start.
 
 Markers move when the game reports your position (on stop / landing).
 
+### Overlay extras (last row)
+
+- "XYZ": your position centred just above the minimap, colored like the
+  freshness ring (green / yellow / red).
+- "Ring" and its slider: show / hide the freshness ring around your arrow
+  and make it thicker (leftmost = the thin default, +1 px per step).
+- "Auto-clear" slider: cubes older than this leave the list (default
+  20 min, far left = off). "Clear list" (or "Clear cubes" in the tray menu)
+  empties it at once, e.g. for a cube stuck under the ground.
+- "History on map": a small dot (70 % opacity) wherever cubes appeared
+  before - green when they were mostly taken by you, red when mostly by
+  others, grey when nobody was seen taking them.
+
+## Cube history
+
+Every cube is written to `data\cubes_<8 random letters>.csv` next to
+`cube_watch.exe` (one file per session) once its fate is known: taken,
+destroyed, cleared or when the app exits. Columns:
+
+| Column | Meaning |
+|--------|---------|
+| `appeared` | local date and time it was first seen |
+| `spawned_in_range` | 1 = it appeared already inside view range (it spawned while we were there), 0 = we came into range of it; estimated from the distance at first sight (closer than 12,000 = 1), empty if our position was unknown |
+| `x`, `y`, `z` | position |
+| `taken_by_us` | 1 = we opened it, 0 = another player, empty = unknown (vanished / cleared) |
+| `distance` | flat distance at first sight, to re-check `spawned_in_range` later |
+
+All `data\cubes_*.csv` files are loaded at start. Tick "History" (next to
+"Compass range") to see them instead of the cube list. Replays do not write
+history.
+
 ## Replay
 
 - `cube_watch.exe --replay capture.pcapng` plays a saved capture into the

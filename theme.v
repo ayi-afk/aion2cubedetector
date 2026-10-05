@@ -166,7 +166,8 @@ fn set_dark_title_bar(hwnd voidptr, dark bool) {
 // Controls grouped by how they are themed.
 const themed_push_buttons = [Ctl.install_npcap, .run_as_admin, .start_stop, .redetect, .view_toggle,
 	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north, .overlay_unlock, .overlay_reset]
-const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode, .overlay]
+const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode, .overlay, .history_toggle,
+	.overlay_xyz, .overlay_ring, .overlay_history]
 const themed_fields = [Ctl.adapter, .sound_mode, .sound_file, .compass_range, .overlay_ui,
 	.overlay_zoom, .overlay_opacity]
 
@@ -192,23 +193,25 @@ fn (mut app App) apply_theme() {
 	for id in themed_fields {
 		set_window_theme(app.ctl(id), if dark { 'DarkMode_CFD' } else { '' })
 	}
-	list := app.ctl(.list)
-	set_window_theme(list, if dark { 'DarkMode_Explorer' } else { '' })
-	header := voidptr(C.SendMessageW(list, lvm_getheader, 0, 0))
-	set_window_theme(header, if dark { 'DarkMode_ItemsView' } else { '' })
-	C.SendMessageW(list, lvm_setbkcolor, 0, isize(app.theme.field))
-	C.SendMessageW(list, lvm_settextbkcolor, 0, isize(app.theme.field))
-	C.SendMessageW(list, lvm_settextcolor, 0, isize(app.theme.text))
-	// Light grid lines look harsh on the dark list.
-	C.SendMessageW(list, lvm_setextendedlistviewstyle, usize(lvs_ex_gridlines), if dark {
-		isize(0)
-	} else {
-		lvs_ex_gridlines
-	})
+	for list in [app.ctl(.list), app.ctl(.history)] {
+		set_window_theme(list, if dark { 'DarkMode_Explorer' } else { '' })
+		header := voidptr(C.SendMessageW(list, lvm_getheader, 0, 0))
+		set_window_theme(header, if dark { 'DarkMode_ItemsView' } else { '' })
+		C.SendMessageW(list, lvm_setbkcolor, 0, isize(app.theme.field))
+		C.SendMessageW(list, lvm_settextbkcolor, 0, isize(app.theme.field))
+		C.SendMessageW(list, lvm_settextcolor, 0, isize(app.theme.text))
+		// Light grid lines look harsh on the dark list.
+		C.SendMessageW(list, lvm_setextendedlistviewstyle, usize(lvs_ex_gridlines), if dark {
+			isize(0)
+		} else {
+			lvs_ex_gridlines
+		})
+	}
 	C.SendMessageW(app.ctl(.dark_mode), bm_setcheck, usize(dark), 0)
 	app.render_overlay() // contested color follows the theme
 	if app.ctl(.opacity) != unsafe { nil } {
 		app.create_opacity_bar()
+		app.create_trackbars()
 	}
 
 	C.RedrawWindow(app.hwnd, unsafe { nil }, unsafe { nil }, rdw_invalidate | rdw_erase | rdw_allchildren | rdw_frame)

@@ -7,3 +7,6 @@
 # Build outputs
 *.exe
 build_stamp.v
+
+# Cube history written by the app (data/cubes_*.csv)
+data/

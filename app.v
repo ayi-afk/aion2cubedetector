@@ -74,6 +74,14 @@ enum Ctl {
 	overlay_opacity
 	overlay_unlock
 	overlay_reset
+	history_toggle
+	history
+	overlay_xyz
+	overlay_ring
+	ring_width
+	auto_clear_label
+	auto_clear
+	overlay_history
 }
 
 // Controls shown only in the standard (full) view.
@@ -82,7 +90,8 @@ const standard_only_controls = [Ctl.status, .adapter_label, .adapter, .start_sto
 	.opacity_label, .opacity, .opacity_value, .topmost, .close_to_tray, .dark_mode, .calibrate,
 	.rotate_north, .range_label, .compass_range, .overlay, .overlay_ui_label, .overlay_ui,
 	.overlay_zoom_label, .overlay_zoom, .overlay_opacity_label, .overlay_opacity, .overlay_unlock,
-	.overlay_reset]
+	.overlay_reset, .history_toggle, .history, .overlay_xyz, .overlay_ring, .ring_width,
+	.auto_clear_label, .auto_clear, .overlay_history]
 
 // List view columns.
 const col_seen = 1
@@ -101,6 +110,7 @@ enum TrayCmd {
 	calibrate
 	overlay
 	overlay_unlock
+	clear_cubes
 	exit
 }
 
@@ -121,6 +131,11 @@ mut:
 	state CubeState
 	actor u64 // player opening / who opened the cube
 	ended f64 // when it was opened or vanished (0 = still there)
+	// For the history CSV (history.v).
+	appeared       f64 // first seen
+	spawned        int = -1 // appeared inside the view range: 1 / 0 / -1 unknown
+	first_distance f64 = -1 // planar distance at first sight
+	logged         bool
 }
 
 // is_target reports whether the cube can still be collected.
@@ -161,6 +176,12 @@ mut:
 	replay_path  string
 	trial        Trial
 	gdip         ?Gdip // antialiased compass drawing
+	// Cube history (history.v): rows newest first, this session's CSV,
+	// grouped spots for the overlay and whether the History list is shown.
+	history       []HistoryRow
+	history_file  string
+	history_spots []HistorySpot
+	history_view  bool
 	// Map overlay window (overlay.v); drag = edge bits while moving, -1 idle.
 	overlay_hwnd       voidptr
 	overlay_unlocked   bool
@@ -298,6 +319,10 @@ fn (mut app App) on_create() {
 	app.add(.clear, 'BUTTON', 'Clear list', ws_tabstop | bs_pushbutton, 0)
 	app.add(.copy, 'BUTTON', 'Copy XYZ', ws_tabstop | bs_pushbutton, 0)
 	app.add(.range_label, 'STATIC', 'Compass range:', 0, 0)
+	app.add(.history_toggle, 'BUTTON', 'History', ws_tabstop | bs_autocheckbox, 0)
+	history := app.add(.history, 'SysListView32', '', ws_tabstop | lvs_report | lvs_ownerdata | lvs_showselalways | lvs_nosortheader,
+		ws_ex_clientedge)
+	app.init_history_list(history)
 	ranges := app.add(.compass_range, 'COMBOBOX', '', ws_tabstop | ws_vscroll | cbs_dropdownlist,
 		0)
 	for r in compass_ranges {
@@ -335,6 +360,18 @@ fn (mut app App) on_create() {
 	app.add_choices(.overlay_opacity, overlay_opacities.map('${it} %'), overlay_opacities.index(app.settings.overlay_opacity))
 	app.add(.overlay_unlock, 'BUTTON', 'Unlock', ws_tabstop | bs_pushbutton, 0)
 	app.add(.overlay_reset, 'BUTTON', 'Reset', ws_tabstop | bs_pushbutton, 0)
+	app.add(.overlay_xyz, 'BUTTON', 'XYZ', ws_tabstop | bs_autocheckbox, 0)
+	app.add(.overlay_ring, 'BUTTON', 'Ring', ws_tabstop | bs_autocheckbox, 0)
+	app.add(.auto_clear_label, 'STATIC', app.auto_clear_text(), 0, 0)
+	app.add(.overlay_history, 'BUTTON', 'History on map', ws_tabstop | bs_autocheckbox,
+		0)
+	app.create_trackbars()
+	C.SendMessageW(app.ctl(.overlay_xyz), bm_setcheck, usize(app.settings.overlay_xyz),
+		0)
+	C.SendMessageW(app.ctl(.overlay_ring), bm_setcheck, usize(app.settings.overlay_ring),
+		0)
+	C.SendMessageW(app.ctl(.overlay_history), bm_setcheck, usize(app.settings.overlay_history),
+		0)
 
 	app.taskbar_created = C.RegisterWindowMessageW('TaskbarCreated'.to_wide())
 	app.add_tray_icon()
@@ -455,11 +492,12 @@ fn (mut app App) layout() {
 	app.place(.nearest, m, y, w - 2 * m, row)
 	y += row
 
-	bottom_rows := 4
+	bottom_rows := 5
 	list_bottom := h - m - bottom_rows * row - (bottom_rows - 1) * gap - gap
 	compass_w := app.s(190)
 	list_h := math.max(list_bottom - y, app.s(60))
 	compass_x := w - m - compass_w
+	list_y := y
 	app.place(.list, m, y, compass_x - gap - m, list_h)
 	north_y := y + list_h - row
 	app.place(.compass, compass_x, y, compass_w, list_h - row - gap)
@@ -474,6 +512,8 @@ fn (mut app App) layout() {
 	range_label_w := app.s(96)
 	app.place(.range_label, range_x, by + text_off, range_label_w, row)
 	app.place(.compass_range, range_x + range_label_w, by, app.s(100), app.s(200))
+	app.place(.history_toggle, range_x + range_label_w + app.s(100) + 2 * gap, by, app.s(80),
+		row)
 	by += row + gap
 
 	mode_w := app.s(130)
@@ -514,6 +554,22 @@ fn (mut app App) layout() {
 		})
 		ox += cw + if is_label { 0 } else { gap }
 	}
+	by += row + gap
+
+	ox = m
+	for item in [[int(Ctl.overlay_xyz), 54], [int(Ctl.overlay_ring), 54],
+		[int(Ctl.ring_width), 90], [int(Ctl.auto_clear_label), 124],
+		[int(Ctl.auto_clear), 120], [int(Ctl.overlay_history), 130]] {
+		id := unsafe { Ctl(item[0]) }
+		cw := app.s(item[1])
+		app.place(id, ox, if id == .auto_clear_label { by + text_off } else { by }, cw,
+			row)
+		ox += cw + gap
+	}
+	// The History list takes the cube list's place while "History" is ticked.
+	app.place(.history, m, list_y, compass_x - gap - m, list_h)
+	app.show(.list, !compact && !app.history_view)
+	app.show(.history, !compact && app.history_view)
 }
 
 fn (app &App) place(id Ctl, x int, y int, w int, h int) {
@@ -732,6 +788,7 @@ fn (mut app App) on_decoded(ev proto.Event) {
 				c.actor = ev.actor
 				c.mark_ended(ev.timestamp)
 			})
+			app.log_cube(app.cube_index(ev.id), if app.is_self(ev.actor) { 1 } else { 0 })
 			if !app.is_self(ev.actor) {
 				if row := app.cube_by_id(ev.id) {
 					app.set_status('Cube #${row.number} was taken by another player (entity ${ev.actor}).',
@@ -748,6 +805,11 @@ fn (mut app App) on_decoded(ev proto.Event) {
 					c.state = .out_of_view
 				}
 			})
+			if c := app.cube_by_id(ev.id) {
+				if c.state == .gone {
+					app.log_cube(app.cube_index(ev.id), -1) // destroyed, opener unknown
+				}
+			}
 		}
 	}
 	app.dirty = true
@@ -766,7 +828,10 @@ fn (mut app App) prune_cubes() {
 	mut i := app.cubes.len - 1
 	for i >= 0 {
 		c := app.cubes[i]
-		if c.ended > 0 && now - c.ended > cube_linger_seconds {
+		expired := app.settings.auto_clear_minutes > 0
+			&& now - c.appeared > f64(app.settings.auto_clear_minutes) * 60
+		if (c.ended > 0 && now - c.ended > cube_linger_seconds) || expired {
+			app.log_cube(i, -1)
 			C.SendMessageW(app.ctl(.list), lvm_deleteitem, usize(i), 0)
 			app.cubes.delete(i)
 			app.dirty = true
@@ -802,6 +867,24 @@ fn (app &App) freshness_color(age f64) u32 {
 fn (app &App) is_self(id u64) bool {
 	self_id := app.player_id or { return false }
 	return self_id == id
+}
+
+fn (app &App) cube_index(id u64) int {
+	for i, c in app.cubes {
+		if c.id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// clear_cubes empties the cube list (e.g. a cube stuck under the ground),
+// recording the cubes in the history first.
+fn (mut app App) clear_cubes() {
+	app.log_open_cubes()
+	C.SendMessageW(app.ctl(.list), lvm_deleteallitems, 0, 0)
+	app.cubes.clear()
+	app.dirty = true
 }
 
 fn (app &App) cube_by_id(id u64) ?CubeRow {
@@ -842,11 +925,16 @@ fn (app &App) state_text(c CubeRow) string {
 fn (mut app App) on_cube(ev proto.Event) {
 	app.cube_count++
 	seen := time.unix(i64(ev.timestamp)).local().hhmmss()
-	row := CubeRow{
-		number: app.cube_count
-		id:     ev.id
-		pos:    ev.pos
-		seen:   seen
+	mut row := CubeRow{
+		number:   app.cube_count
+		id:       ev.id
+		pos:      ev.pos
+		seen:     seen
+		appeared: ev.timestamp
+	}
+	if p := app.player {
+		row.first_distance = math.hypot(ev.pos.x - p.pos.x, ev.pos.y - p.pos.y)
+		row.spawned = if row.first_distance < spawn_in_range_units { 1 } else { 0 }
 	}
 	app.cubes.insert(0, row)
 	list := app.ctl(.list)
@@ -1235,6 +1323,7 @@ fn (mut app App) tray_menu() {
 	C.AppendMenuW(menu, mf_string | if app.settings.compact { mf_checked } else { u32(0) },
 		usize(int(TrayCmd.compact)), 'Compact view'.to_wide())
 	C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.calibrate)), 'Calibrate north'.to_wide())
+	C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.clear_cubes)), 'Clear cubes'.to_wide())
 	C.AppendMenuW(menu, mf_string | if app.settings.overlay { mf_checked } else { u32(0) },
 		usize(int(TrayCmd.overlay)), 'Map overlay'.to_wide())
 	if app.settings.overlay {
@@ -1275,6 +1364,9 @@ fn (mut app App) tray_menu() {
 		int(TrayCmd.calibrate) {
 			app.show_window()
 			app.toggle_calibration()
+		}
+		int(TrayCmd.clear_cubes) {
+			app.clear_cubes()
 		}
 		int(TrayCmd.overlay) {
 			app.set_overlay(!app.settings.overlay)
@@ -1395,9 +1487,7 @@ fn (mut app App) on_command(id int, code int) {
 			app.dirty = true
 		}
 		int(Ctl.clear) {
-			C.SendMessageW(app.ctl(.list), lvm_deleteallitems, 0, 0)
-			app.cubes.clear()
-			app.dirty = true
+			app.clear_cubes()
 		}
 		int(Ctl.copy) {
 			app.copy_selected()
@@ -1432,6 +1522,21 @@ fn (mut app App) on_command(id int, code int) {
 		}
 		int(Ctl.overlay_reset) {
 			app.reset_overlay_position()
+		}
+		int(Ctl.history_toggle) {
+			app.set_history_view(C.SendMessageW(app.ctl(.history_toggle), bm_getcheck,
+				0, 0) == 1)
+		}
+		int(Ctl.overlay_xyz), int(Ctl.overlay_ring), int(Ctl.overlay_history) {
+			ctl := unsafe { Ctl(id) }
+			checked := C.SendMessageW(app.ctl(ctl), bm_getcheck, 0, 0) == 1
+			match ctl {
+				.overlay_xyz { app.settings.overlay_xyz = checked }
+				.overlay_ring { app.settings.overlay_ring = checked }
+				else { app.settings.overlay_history = checked }
+			}
+			app.save()
+			app.apply_overlay()
 		}
 		int(Ctl.compass_range) {
 			if code != cbn_selchange {
@@ -1527,6 +1632,10 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			return 0
 		}
 		wm_hscroll {
+			if voidptr(lparam) == app.ctl(.ring_width) || voidptr(lparam) == app.ctl(.auto_clear) {
+				app.on_overlay_slider(voidptr(lparam), loword(wparam) == 8)
+				return 0
+			}
 			if voidptr(lparam) == app.ctl(.opacity) {
 				app.settings.opacity = int(C.SendMessageW(app.ctl(.opacity), tbm_getpos,
 					0, 0))
@@ -1542,6 +1651,11 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			if hdr.hwnd_from == app.ctl(.list) && hdr.code == nm_customdraw {
 				mut cd := unsafe { &NmLvCustomDraw(voidptr(lparam)) }
 				return app.list_custom_draw(mut cd)
+			}
+			if hdr.hwnd_from == app.ctl(.history) && hdr.code == lvn_getdispinfow {
+				mut info := unsafe { &NmLvDispInfo(voidptr(lparam)) }
+				app.history_dispinfo(mut info)
+				return 0
 			}
 		}
 		wm_ctlcolorstatic, wm_ctlcoloredit, wm_ctlcolorlistbox, wm_ctlcolorbtn {
@@ -1569,7 +1683,7 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			info.min_track = if app.settings.compact {
 				Point{app.s(180), app.s(230)}
 			} else {
-				Point{app.s(640), app.s(400)}
+				Point{app.s(640), app.s(430)}
 			}
 			return 0
 		}
@@ -1614,6 +1728,7 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			return 0
 		}
 		wm_destroy {
+			app.log_open_cubes()
 			if app.overlay_hwnd != unsafe { nil } {
 				C.DestroyWindow(app.overlay_hwnd)
 			}
@@ -1751,10 +1866,12 @@ fn run_app(start_hidden bool, replay_path string) int {
 		start_hidden: start_hidden
 		replay_path:  replay_path
 		trial:        trial
+		history:      load_history()
 		gdip:         load_gdip()
 		theme:        light_theme
 		elevated:     is_elevated()
 	}
+	app.history_spots = group_history(app.history)
 	screen := C.GetDC(unsafe { nil })
 	app.dpi = C.GetDeviceCaps(screen, logpixelsy)
 	C.ReleaseDC(unsafe { nil }, screen)

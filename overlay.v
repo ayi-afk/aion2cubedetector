@@ -125,6 +125,20 @@ fn (app &App) overlay_rect() Rect {
 	return Rect{x, y, x + int(s.overlay_w * sw), y + int(s.overlay_h * sh)}
 }
 
+// overlay_strip_h: height of the X / Y / Z strip above the minimap box.
+fn (app &App) overlay_strip_h(box_w int) int {
+	if !app.settings.overlay_xyz {
+		return 0
+	}
+	return int(math.max(10.0, f64(box_w) * 0.042) * 1.7)
+}
+
+// overlay_window_rect: the minimap box plus the X / Y / Z strip above it.
+fn (app &App) overlay_window_rect() Rect {
+	box := app.overlay_rect()
+	return Rect{box.left, box.top - app.overlay_strip_h(box.right - box.left), box.right, box.bottom}
+}
+
 fn (mut app App) remember_overlay_rect(rc Rect) {
 	sw, sh := primary_screen()
 	app.settings.overlay_x = f64(rc.left) / sw
@@ -153,7 +167,7 @@ fn (mut app App) apply_overlay() {
 		}
 		C.SetWindowLongPtrW(app.overlay_hwnd, gwlp_userdata, isize(voidptr(app)))
 	}
-	rc := app.overlay_rect()
+	rc := app.overlay_window_rect()
 	C.SetWindowPos(app.overlay_hwnd, voidptr(isize(hwnd_topmost)), rc.left, rc.top, rc.right - rc.left,
 		rc.bottom - rc.top, swp_noactivate)
 	C.ShowWindow(app.overlay_hwnd, 4) // SW_SHOWNOACTIVATE: never take focus from the game
@@ -301,7 +315,7 @@ fn (mut app App) overlay_message(msg u32, wparam usize) ?isize {
 			C.ReleaseCapture()
 			mut rc := Rect{}
 			C.GetWindowRect(app.overlay_hwnd, &rc)
-			app.remember_overlay_rect(rc)
+			app.remember_overlay_rect(Rect{rc.left, rc.top + app.overlay_strip_h(rc.right - rc.left), rc.right, rc.bottom})
 			app.save()
 			return 0
 		}
@@ -374,7 +388,13 @@ fn (mut app App) render_overlay() {
 		if gr != unsafe { nil } {
 			g.set_smoothing(gr, gdip_smoothing_antialias)
 			g.clear(gr, 0)
-			app.draw_overlay(Canvas{&g, gr}, w, h)
+			c := Canvas{&g, gr}
+			strip := app.overlay_strip_h(w)
+			if strip > 0 {
+				app.draw_xyz(c, w, strip)
+				g.translate(gr, 0, f32(strip), 0)
+			}
+			app.draw_overlay(c, w, h - strip)
 			g.delete_graphics(gr)
 		}
 		g.dispose_image(img)
@@ -421,9 +441,14 @@ fn (app &App) draw_overlay(c Canvas, w int, h int) {
 			c.fill_rect(p[0], p[1], grip, grip, accent)
 		}
 	}
-	app.draw_freshness_ring(c, cx, cy, fw)
 	// World units -> overlay pixels; map north is up (compass bearing 0).
 	scale := fw / f32(app.settings.overlay_zoom)
+	if app.settings.overlay_history {
+		app.draw_history_spots(c, cx, cy, fw, fh, scale)
+	}
+	if app.settings.overlay_ring {
+		app.draw_freshness_ring(c, cx, cy, fw)
+	}
 	if app.overlay_unlocked {
 		app.draw_zoom_reference(c, cx, cy, scale)
 	}
@@ -655,7 +680,83 @@ fn (app &App) draw_freshness_ring(c Canvas, cx f32, cy f32, fw f32) {
 		app.theme.error
 	}
 	r := fw * 0.085
-	width := f32(math.max(2.0, f64(fw) * 0.008))
+	// Slider value 1 = the base thickness; each step adds a pixel.
+	width := f32(math.max(2.0, f64(fw) * 0.008)) + f32(app.settings.overlay_ring_width - 1)
 	c.stroke_circle(cx, cy, r, width + 2, 0xa0000000)
 	c.stroke_circle(cx, cy, r, width, with_alpha(color, 235))
+}
+
+// draw_xyz writes your X / Y / Z centred in the strip above the minimap, in
+// the freshness color of the ring (green / yellow / red).
+fn (app &App) draw_xyz(c Canvas, w int, strip int) {
+	font := c.new_font('Segoe UI', f32(math.max(10.0, f64(w) * 0.042))) or { return }
+	defer {
+		c.free_font(font)
+	}
+	text, color := if p := app.player {
+		'X ${format_signed(p.pos.x)}   Y ${format_signed(p.pos.y)}   Z ${format_signed(p.pos.z)}', app.freshness_color(now_seconds() - p.timestamp)
+	} else {
+		'waiting for your position', app.theme.error
+	}
+	tw, th := c.text_size(text, font)
+	c.outlined_text((f32(w) - tw) / 2, (f32(strip) - th) / 2, text, font, with_alpha(color,
+		255))
+}
+
+// draw_history_spots marks where cubes appeared before (data/cubes_*.csv):
+// small squares, green = mostly taken by us, red = mostly by others.
+fn (app &App) draw_history_spots(c Canvas, cx f32, cy f32, fw f32, fh f32, scale f32) {
+	p := app.player or { return }
+	compass := app.compass()
+	size := f32(math.max(2.0, f64(fw) / 150))
+	top := fh * f32(minimap_title_height)
+	for s in app.history_spots {
+		dx, dy := s.x - p.pos.x, s.y - p.pos.y
+		d := f32(math.hypot(dx, dy)) * scale
+		a := math.radians(compass.bearing(dx, dy))
+		x, y := cx + f32(math.sin(a)) * d, cy - f32(math.cos(a)) * d
+		if x < 0 || x > fw || y < top || y > fh {
+			continue
+		}
+		c.fill_rect(x - size / 2, y - size / 2, size, size, spot_color(s))
+	}
+}
+
+// ---- overlay sliders ------------------------------------------------------------
+
+fn (app &App) auto_clear_text() string {
+	m := app.settings.auto_clear_minutes
+	return if m == 0 { 'Auto-clear: off' } else { 'Auto-clear: ${m} min' }
+}
+
+// create_trackbars (re)creates the ring thickness and auto-clear sliders;
+// trackbars keep their old colors, so a theme change recreates them.
+fn (mut app App) create_trackbars() {
+	for spec in [[int(Ctl.ring_width), 1, 10, app.settings.overlay_ring_width],
+		[int(Ctl.auto_clear), 0, 60, app.settings.auto_clear_minutes]] {
+		id := unsafe { Ctl(spec[0]) }
+		old := app.ctl(id)
+		bar := app.add(id, 'msctls_trackbar32', '', ws_tabstop, 0)
+		C.SendMessageW(bar, tbm_setrange, 1, makelong(spec[1], spec[2]))
+		C.SendMessageW(bar, tbm_setpagesize, 0, if id == .auto_clear { 5 } else { 1 })
+		C.SendMessageW(bar, tbm_setpos, 1, isize(spec[3]))
+		if old != unsafe { nil } {
+			C.DestroyWindow(old)
+		}
+	}
+	app.layout()
+}
+
+fn (mut app App) on_overlay_slider(bar voidptr, done bool) {
+	pos := int(C.SendMessageW(bar, tbm_getpos, 0, 0))
+	if bar == app.ctl(.ring_width) {
+		app.settings.overlay_ring_width = pos
+		app.render_overlay()
+	} else {
+		app.settings.auto_clear_minutes = pos
+		set_text(app.ctl(.auto_clear_label), app.auto_clear_text())
+	}
+	if done {
+		app.save()
+	}
 }

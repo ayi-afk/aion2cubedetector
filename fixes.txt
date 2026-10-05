@@ -1,3 +1,6 @@
 # Fixes / changes for the next upload, one per line ('#' lines are ignored).
 # upload.bat posts them with the build and then clears this list.
 Custom sound: fixed crashes with the file picker / MP3 playback (COM initialised, V exception handler off); Test without a file opens the picker; crashes are logged to %APPDATA%\CubeWatch\log.txt
+Overlay: XYZ above the minimap (freshness color), Ring on/off with thickness slider, History on map dots (green = mostly us, red = mostly others)
+Auto-clear slider (default 20 min) and Clear cubes in the tray menu
+Cube history saved to data\cubes_xxxxxxxx.csv and browsable with the History checkbox
