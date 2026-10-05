@@ -168,7 +168,7 @@ const themed_push_buttons = [Ctl.install_npcap, .run_as_admin, .start_stop, .red
 	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north, .overlay_unlock, .overlay_reset]
 const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode, .overlay, .history_toggle,
 	.overlay_xyz, .overlay_ring, .overlay_history]
-const themed_fields = [Ctl.adapter, .sound_mode, .sound_file, .compass_range, .overlay_ui,
+const themed_fields = [Ctl.adapter, .sound_mode, .sound_file, .compass_range, .xyz_order, .overlay_ui,
 	.overlay_zoom, .overlay_opacity]
 
 // apply_theme recolors every control for the current theme setting.

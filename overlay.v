@@ -130,7 +130,13 @@ fn (app &App) overlay_strip_h(box_w int) int {
 	if !app.settings.overlay_xyz {
 		return 0
 	}
-	return int(math.max(10.0, f64(box_w) * 0.042) * 1.7)
+	return int(xyz_font_px(box_w) * 1.7)
+}
+
+// The X / Y / Z line stays small and regular weight so it does not draw the
+// eye away from the minimap.
+fn xyz_font_px(box_w int) f64 {
+	return math.max(9.0, f64(box_w) * 0.03)
 }
 
 // overlay_window_rect: the minimap box plus the X / Y / Z strip above it.
@@ -689,18 +695,20 @@ fn (app &App) draw_freshness_ring(c Canvas, cx f32, cy f32, fw f32) {
 // draw_xyz writes your X / Y / Z centred in the strip above the minimap, in
 // the freshness color of the ring (green / yellow / red).
 fn (app &App) draw_xyz(c Canvas, w int, strip int) {
-	font := c.new_font('Segoe UI', f32(math.max(10.0, f64(w) * 0.042))) or { return }
+	font := c.new_font_style('Segoe UI', f32(xyz_font_px(w)), 0) or { return }
 	defer {
 		c.free_font(font)
 	}
 	text, color := if p := app.player {
-		'X ${format_signed(p.pos.x)}   Y ${format_signed(p.pos.y)}   Z ${format_signed(p.pos.z)}', app.freshness_color(now_seconds() - p.timestamp)
+		app.format_xyz(p.pos, '   '), app.freshness_color(now_seconds() - p.timestamp)
 	} else {
 		'waiting for your position', app.theme.error
 	}
 	tw, th := c.text_size(text, font)
-	c.outlined_text((f32(w) - tw) / 2, (f32(strip) - th) / 2, text, font, with_alpha(color,
-		255))
+	// Own transparency (slider next to "XYZ"); the rim fades with the text.
+	alpha := app.settings.overlay_xyz_alpha * 255 / 100
+	c.outlined_text_rim((f32(w) - tw) / 2, (f32(strip) - th) / 2, text, font, with_alpha(color,
+		alpha), u32(alpha * 3 / 4) << 24)
 }
 
 // draw_history_spots marks where cubes appeared before (data/cubes_*.csv):
@@ -732,10 +740,11 @@ fn (app &App) auto_clear_text() string {
 	return if m == 0 { 'Auto-clear: off' } else { 'Auto-clear: ${m} min' }
 }
 
-// create_trackbars (re)creates the ring radius and auto-clear sliders;
+// create_trackbars (re)creates the XYZ opacity, ring radius and auto-clear sliders;
 // trackbars keep their old colors, so a theme change recreates them.
 fn (mut app App) create_trackbars() {
 	for spec in [
+		[int(Ctl.xyz_alpha), 10, 100, app.settings.overlay_xyz_alpha],
 		[int(Ctl.ring_radius), 1, ring_radius_max, app.settings.overlay_ring_radius],
 		[int(Ctl.auto_clear), 0, 60, app.settings.auto_clear_minutes],
 	] {
@@ -754,7 +763,10 @@ fn (mut app App) create_trackbars() {
 
 fn (mut app App) on_overlay_slider(bar voidptr, done bool) {
 	pos := int(C.SendMessageW(bar, tbm_getpos, 0, 0))
-	if bar == app.ctl(.ring_radius) {
+	if bar == app.ctl(.xyz_alpha) {
+		app.settings.overlay_xyz_alpha = pos
+		app.render_overlay()
+	} else if bar == app.ctl(.ring_radius) {
 		app.settings.overlay_ring_radius = pos
 		app.render_overlay()
 	} else {
@@ -764,4 +776,52 @@ fn (mut app App) on_overlay_slider(bar voidptr, done bool) {
 	if done {
 		app.save()
 	}
+}
+
+// ---- coordinate order -----------------------------------------------------------
+
+const xyz_orders = ['XYZ', 'XZY', 'YXZ', 'YZX', 'ZXY', 'ZYX']
+
+// map_xyz_order: east-west axis, then north-south, then height - the order
+// that reads like the minimap (marked with a star in the drop-down).
+fn (app &App) map_xyz_order() string {
+	compass := app.compass()
+	b := compass.bearing(1, 0) // direction of world +X on the map
+	east_west_is_x := math.abs(math.sin(math.radians(b))) >= 0.7071
+	return if east_west_is_x { 'XYZ' } else { 'YXZ' }
+}
+
+fn (app &App) xyz_order_label(order string) string {
+	spaced := order.split('').join(' ')
+	return if order == app.map_xyz_order() { spaced + ' \u2605' } else { spaced }
+}
+
+// format_xyz writes the position in the chosen axis order, e.g.
+// "X -142,618   Y -119,363   Z +37,824".
+fn (app &App) format_xyz(pos proto.Vec3, sep string) string {
+	return app.format_xyz_axes(pos, app.settings.xyz_order, sep)
+}
+
+fn (app &App) format_xyz_axes(pos proto.Vec3, axes string, sep string) string {
+	mut parts := []string{}
+	for axis in axes.split('') {
+		v := match axis {
+			'X' { pos.x }
+			'Y' { pos.y }
+			else { pos.z }
+		}
+		parts << '${axis} ${format_signed(v)}'
+	}
+	return parts.join(sep)
+}
+
+// update_xyz_order_choices relabels the drop-down (the star follows north).
+fn (mut app App) update_xyz_order_choices() {
+	combo := app.ctl(.xyz_order)
+	C.SendMessageW(combo, cb_resetcontent, 0, 0)
+	for o in xyz_orders {
+		C.SendMessageW(combo, cb_addstring, 0, ptr_param(app.xyz_order_label(o).to_wide()))
+	}
+	C.SendMessageW(combo, cb_setcursel, usize(xyz_orders.index(app.settings.xyz_order)),
+		0)
 }

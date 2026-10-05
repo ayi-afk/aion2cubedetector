@@ -236,11 +236,13 @@ fn (app &App) draw_position(dc voidptr, w int, line int) int {
 	redetecting := age >= player_redetect_seconds
 	C.SetTextColor(dc, if redetecting { app.theme.warn } else { app.theme.text })
 	x := dot + app.s(4)
-	draw_text_aligned(dc, 'X ${format_signed(p.pos.x)}  Y ${format_signed(p.pos.y)}',
-		x, 0, w, line, dt_left)
+	// Same axis order as the overlay's X / Y / Z line.
+	order := app.settings.xyz_order
+	draw_text_aligned(dc, app.format_xyz_axes(p.pos, order[..2], '  '), x, 0, w, line,
+		dt_left)
 	C.SetTextColor(dc, if redetecting { app.theme.warn } else { app.theme.dim })
-	draw_text_aligned(dc, 'Z ${format_signed(p.pos.z)}  (${age:.0f}s ago)', x, line, w,
-		2 * line, dt_left)
+	draw_text_aligned(dc, '${app.format_xyz_axes(p.pos, order[2..], '')}  (${age:.0f}s ago)',
+		x, line, w, 2 * line, dt_left)
 	return 2 * line
 }
 

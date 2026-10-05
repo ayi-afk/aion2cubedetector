@@ -4,3 +4,4 @@ Custom sound: fixed crashes with the file picker / MP3 playback (COM initialised
 Overlay: XYZ above the minimap (freshness color), Ring on/off with radius slider, History on map dots (green = mostly us, red = mostly others)
 Auto-clear slider (default 20 min) and Clear cubes in the tray menu
 Cube history saved to data\cubes_xxxxxxxx.csv and browsable with the History checkbox
+Overlay XYZ is smaller and subtler, with its own opacity slider and an axis order choice (the star marks the order matching the map: east-west, north-south, height)

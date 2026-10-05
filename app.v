@@ -77,6 +77,8 @@ enum Ctl {
 	history_toggle
 	history
 	overlay_xyz
+	xyz_alpha
+	xyz_order
 	overlay_ring
 	ring_radius
 	auto_clear_label
@@ -90,8 +92,8 @@ const standard_only_controls = [Ctl.status, .adapter_label, .adapter, .start_sto
 	.opacity_label, .opacity, .opacity_value, .topmost, .close_to_tray, .dark_mode, .calibrate,
 	.rotate_north, .range_label, .compass_range, .overlay, .overlay_ui_label, .overlay_ui,
 	.overlay_zoom_label, .overlay_zoom, .overlay_opacity_label, .overlay_opacity, .overlay_unlock,
-	.overlay_reset, .history_toggle, .history, .overlay_xyz, .overlay_ring, .ring_radius,
-	.auto_clear_label, .auto_clear, .overlay_history]
+	.overlay_reset, .history_toggle, .history, .overlay_xyz, .xyz_alpha, .xyz_order, .overlay_ring,
+	.ring_radius, .auto_clear_label, .auto_clear, .overlay_history]
 
 // List view columns.
 const col_seen = 1
@@ -361,6 +363,8 @@ fn (mut app App) on_create() {
 	app.add(.overlay_unlock, 'BUTTON', 'Unlock', ws_tabstop | bs_pushbutton, 0)
 	app.add(.overlay_reset, 'BUTTON', 'Reset', ws_tabstop | bs_pushbutton, 0)
 	app.add(.overlay_xyz, 'BUTTON', 'XYZ', ws_tabstop | bs_autocheckbox, 0)
+	app.add_choices(.xyz_order, []string{}, 0)
+	app.update_xyz_order_choices()
 	app.add(.overlay_ring, 'BUTTON', 'Ring', ws_tabstop | bs_autocheckbox, 0)
 	app.add(.auto_clear_label, 'STATIC', app.auto_clear_text(), 0, 0)
 	app.add(.overlay_history, 'BUTTON', 'History on map', ws_tabstop | bs_autocheckbox,
@@ -557,13 +561,18 @@ fn (mut app App) layout() {
 	by += row + gap
 
 	ox = m
-	for item in [[int(Ctl.overlay_xyz), 54], [int(Ctl.overlay_ring), 54],
-		[int(Ctl.ring_radius), 90], [int(Ctl.auto_clear_label), 124],
-		[int(Ctl.auto_clear), 120], [int(Ctl.overlay_history), 130]] {
+	for item in [[int(Ctl.overlay_xyz), 48], [int(Ctl.xyz_alpha), 64],
+		[int(Ctl.xyz_order), 72], [int(Ctl.overlay_ring), 50],
+		[int(Ctl.ring_radius), 80], [int(Ctl.auto_clear_label), 108],
+		[int(Ctl.auto_clear), 96], [int(Ctl.overlay_history), 118]] {
 		id := unsafe { Ctl(item[0]) }
 		cw := app.s(item[1])
 		app.place(id, ox, if id == .auto_clear_label { by + text_off } else { by }, cw,
-			row)
+			if id == .xyz_order {
+			app.s(200)
+		} else {
+			row
+		})
 		ox += cw + gap
 	}
 	// The History list takes the cube list's place while "History" is ticked.
@@ -1218,6 +1227,7 @@ fn (mut app App) check_calibration(fix PlayerFix) {
 	}
 	app.calibrating = false
 	app.settings.north_deg = proto.north_from_walk(dx, dy)
+	app.update_xyz_order_choices() // the map-order star follows north
 	app.settings.north_calibrated = true
 	app.trend_ref = none
 	app.dirty = true
@@ -1523,6 +1533,17 @@ fn (mut app App) on_command(id int, code int) {
 		int(Ctl.overlay_reset) {
 			app.reset_overlay_position()
 		}
+		int(Ctl.xyz_order) {
+			if code == cbn_selchange {
+				sel := int(C.SendMessageW(app.ctl(.xyz_order), cb_getcursel, 0, 0))
+				if sel >= 0 && sel < xyz_orders.len {
+					app.settings.xyz_order = xyz_orders[sel]
+					app.save()
+					app.render_overlay()
+					C.InvalidateRect(app.ctl(.compass), unsafe { nil }, 0)
+				}
+			}
+		}
 		int(Ctl.history_toggle) {
 			app.set_history_view(C.SendMessageW(app.ctl(.history_toggle), bm_getcheck,
 				0, 0) == 1)
@@ -1555,6 +1576,7 @@ fn (mut app App) on_command(id int, code int) {
 		}
 		int(Ctl.rotate_north) {
 			app.settings.north_deg = proto.normalize_deg(app.settings.north_deg + 90)
+			app.update_xyz_order_choices()
 			app.set_status('Compass turned a quarter turn ${rotate_glyph}. Use "Calibrate north" for an exact match with the minimap.',
 				false)
 			app.dirty = true
@@ -1632,7 +1654,8 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			return 0
 		}
 		wm_hscroll {
-			if voidptr(lparam) == app.ctl(.ring_radius) || voidptr(lparam) == app.ctl(.auto_clear) {
+			if voidptr(lparam) in [app.ctl(.xyz_alpha), app.ctl(.ring_radius),
+				app.ctl(.auto_clear)] {
 				app.on_overlay_slider(voidptr(lparam), loword(wparam) == 8)
 				return 0
 			}

@@ -113,8 +113,11 @@ Markers move when the game reports your position (on stop / landing).
 
 ### Overlay extras (last row)
 
-- "XYZ": your position centred just above the minimap, colored like the
-  freshness ring (green / yellow / red).
+- "XYZ": your position in small text centred just above the minimap,
+  colored like the freshness ring (green / yellow / red). The slider next
+  to it sets its opacity (default 60 %); the drop-down sets the axis order
+  (also for the compass corner) - the one marked with a star reads like the
+  map: east-west axis, north-south axis, height.
 - "Ring" and its slider: show / hide the freshness ring around your arrow
   and set its radius (leftmost = the default, +1 px per step).
 - "Auto-clear" slider: cubes older than this leave the list (default

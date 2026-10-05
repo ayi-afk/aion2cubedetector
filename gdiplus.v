@@ -276,12 +276,17 @@ struct GdipFont {
 }
 
 fn (c Canvas) new_font(name string, px f32) ?GdipFont {
+	return c.new_font_style(name, px, gdip_font_bold)
+}
+
+// new_font_style: style 0 = regular, gdip_font_bold = bold.
+fn (c Canvas) new_font_style(name string, px f32, style int) ?GdipFont {
 	family := unsafe { nil }
 	if c.g.font_family(name.to_wide(), unsafe { nil }, &family) != 0 || family == unsafe { nil } {
 		return none
 	}
 	font := unsafe { nil }
-	if c.g.create_font(family, px, gdip_font_bold, gdip_unit_pixel, &font) != 0
+	if c.g.create_font(family, px, style, gdip_unit_pixel, &font) != 0
 		|| font == unsafe { nil } {
 		c.g.delete_family(family)
 		return none
@@ -306,9 +311,14 @@ fn (c Canvas) text_size(text string, f GdipFont) (f32, f32) {
 // outlined_text draws `text` with its top-left at (x, y) and a dark rim so
 // it reads on light and dark map areas alike.
 fn (c Canvas) outlined_text(x f32, y f32, text string, f GdipFont, color u32) {
+	c.outlined_text_rim(x, y, text, f, color, 0xe0000000)
+}
+
+// outlined_text_rim: outlined_text with its own rim color (ARGB).
+fn (c Canvas) outlined_text_rim(x f32, y f32, text string, f GdipFont, color u32, rim u32) {
 	wide := text.to_wide()
 	shadow := unsafe { nil }
-	c.g.create_fill(0xe0000000, &shadow)
+	c.g.create_fill(rim, &shadow)
 	for o in [[f32(-1), 0], [f32(1), 0], [f32(0), -1], [f32(0), 1],
 		[f32(1), 1]] {
 		rc := RectF{x + o[0], y + o[1], 10000, 10000}
