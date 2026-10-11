@@ -264,6 +264,23 @@ mut:
 	stop         bool
 	reset_player bool
 	running      bool
+	recent       proto.RecentFrames // game server frames of the last minute
+}
+
+// record keeps a game server frame for "Save packets".
+fn (mut c Capture) record(frame proto.CapturedFrame) {
+	c.mu.lock()
+	c.recent.add(frame)
+	c.mu.unlock()
+}
+
+// recent_frames returns the game server frames of the last minute.
+fn (mut c Capture) recent_frames() []proto.CapturedFrame {
+	c.mu.lock()
+	defer {
+		c.mu.unlock()
+	}
+	return c.recent.snapshot()
 }
 
 fn (mut c Capture) push(ev WorkerEvent) {
@@ -434,6 +451,12 @@ fn (mut sink PacketSink) handle(mut c Capture, frame []u8, linktype int, timesta
 	if pkt.payload.len == 0 {
 		return
 	}
+	// `frame` may point into Npcap's buffer, so keep a copy.
+	c.record(proto.CapturedFrame{
+		linktype:  linktype
+		timestamp: timestamp
+		data:      frame.clone()
+	})
 	key := '${pkt.server}:${pkt.client_port}'
 	mut stream := sink.streams[key] or {
 		s := &proto.Stream{}

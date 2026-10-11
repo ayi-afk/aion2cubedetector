@@ -130,7 +130,8 @@ pub fn (v Vec3) is_finite() bool {
 		&& !math.is_nan(v.z) && !math.is_inf(v.z, 0)
 }
 
-fn read_vec3(buf []u8, at int) Vec3 {
+// read_vec3 reads three little-endian f32 (x, y, z) at `at`.
+pub fn read_vec3(buf []u8, at int) Vec3 {
 	return Vec3{
 		x: f64(math.f32_from_bits(binary.little_endian_u32_at(buf, at)))
 		y: f64(math.f32_from_bits(binary.little_endian_u32_at(buf, at + 4)))
@@ -171,6 +172,17 @@ mut:
 pub mut:
 	self_id ?u64
 	events  []Event
+	// Analysis tools set `trace` to keep every message in `messages`.
+	trace    bool
+	messages []RawMessage
+}
+
+// RawMessage is one framed message: opcode (2 bytes) and body, without the
+// size varint.
+pub struct RawMessage {
+pub:
+	timestamp f64
+	data      []u8
 }
 
 // reset_player forgets the detected local player so the next matching
@@ -187,16 +199,22 @@ pub fn (mut d Decoder) take_events() []Event {
 
 // Server -> client opcodes (two bytes after the size varint). Layouts were
 // derived from captures; see README "Protocol notes".
-const op_spawn = [u8(0x34), 0x36]! // object spawn: id, 2 bytes, template u32, xyz
-const op_despawn = [u8(0x35), 0x36]! // object removed: id, reason u8
-const op_open_start = [u8(0x38), 0x36]! // object interaction start: id, player id
-const op_open_done = [u8(0x3a), 0x36]! // object interaction done: id, player id
-const op_entity_pos = [u8(0x1a), 0x37]! // entity position: id, 2 bytes, xyz
+pub const op_spawn = [u8(0x34), 0x36]! // object spawn: id, 2 bytes, template u32, xyz
+pub const op_despawn = [u8(0x35), 0x36]! // object removed: id, reason u8
+pub const op_open_start = [u8(0x38), 0x36]! // object interaction start: id, player id
+pub const op_open_done = [u8(0x3a), 0x36]! // object interaction done: id, player id
+pub const op_entity_pos = [u8(0x1a), 0x37]! // entity position: id, 2 bytes, xyz
 
 // on_message handles one framed message; `prefix` is the size varint width.
 pub fn (mut d Decoder) on_message(msg []u8, prefix int, timestamp f64) {
 	if prefix + 2 > msg.len {
 		return
+	}
+	if d.trace {
+		d.messages << RawMessage{
+			timestamp: timestamp
+			data:      msg[prefix..].clone()
+		}
 	}
 	op := [msg[prefix], msg[prefix + 1]]!
 	if op[1] == 0x38 && (op[0] == 0x2a || op[0] == 0x2b) {
@@ -273,28 +291,49 @@ fn (mut d Decoder) emit_player(id u64, pos Vec3, timestamp f64) {
 	}
 }
 
-fn (mut d Decoder) on_spawn(msg []u8, prefix int, timestamp f64) {
-	obj := read_varint(msg, prefix + 2)
+// Spawn is an object spawn message of any template.
+pub struct Spawn {
+pub:
+	id       u64
+	template u32
+	pos      Vec3
+}
+
+// parse_spawn reads an object spawn; `data` starts at the opcode.
+pub fn parse_spawn(data []u8) ?Spawn {
+	if data.len < 2 || data[0] != op_spawn[0] || data[1] != op_spawn[1] {
+		return none
+	}
+	obj := read_varint(data, 2)
 	if obj.status != .ok {
-		return
+		return none
 	}
-	template_at := prefix + 2 + obj.width + 2
-	if template_at + 16 > msg.len {
-		return
+	template_at := 2 + obj.width + 2
+	if template_at + 16 > data.len {
+		return none
 	}
-	if binary.little_endian_u32_at(msg, template_at) != cube_template {
-		return
-	}
-	pos := read_vec3(msg, template_at + 4)
+	pos := read_vec3(data, template_at + 4)
 	if !pos.is_finite() {
+		return none
+	}
+	return Spawn{
+		id:       obj.value
+		template: binary.little_endian_u32_at(data, template_at)
+		pos:      pos
+	}
+}
+
+fn (mut d Decoder) on_spawn(msg []u8, prefix int, timestamp f64) {
+	sp := parse_spawn(msg[prefix..]) or { return }
+	if sp.template != cube_template {
 		return
 	}
-	known := obj.value in d.seen
-	d.seen[obj.value] = true
+	known := sp.id in d.seen
+	d.seen[sp.id] = true
 	d.events << Event{
 		kind:      if known { EventKind.cube_visible } else { EventKind.cube }
-		id:        obj.value
-		pos:       pos
+		id:        sp.id
+		pos:       sp.pos
 		timestamp: timestamp
 	}
 }

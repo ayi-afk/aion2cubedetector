@@ -165,7 +165,8 @@ fn set_dark_title_bar(hwnd voidptr, dark bool) {
 
 // Controls grouped by how they are themed.
 const themed_push_buttons = [Ctl.install_npcap, .run_as_admin, .start_stop, .redetect, .view_toggle,
-	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north, .overlay_unlock, .overlay_reset]
+	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north, .overlay_unlock, .overlay_reset,
+	.save_packets]
 const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode, .overlay, .history_toggle,
 	.overlay_xyz, .overlay_ring, .overlay_history]
 const themed_fields = [Ctl.adapter, .sound_mode, .sound_file, .compass_range, .xyz_order, .overlay_ui,

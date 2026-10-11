@@ -5,7 +5,7 @@ import math
 import os
 
 // Minimal reader for pcapng and classic pcap capture files, used for
-// offline replay and tests.
+// offline replay and tests, and a classic pcap writer for "Save packets".
 
 pub struct CapturedFrame {
 pub:
@@ -30,6 +30,36 @@ pub fn read_capture_file(path string) ![]CapturedFrame {
 		0xA1B2C3D4, 0xA1B23C4D { read_pcap(raw, magic == 0xA1B23C4D)! }
 		else { error('${path}: not a pcap/pcapng file (big-endian files are not supported)') }
 	}
+}
+
+// write_pcap saves frames as a classic pcap file (little-endian, microsecond
+// timestamps). The format holds one link type; the first frame's is used.
+pub fn write_pcap(path string, frames []CapturedFrame) ! {
+	if frames.len == 0 {
+		return error('no frames to write')
+	}
+	mut size := 24
+	for f in frames {
+		size += 16 + f.data.len
+	}
+	mut out := []u8{len: size}
+	binary.little_endian_put_u32_at(mut out, 0xA1B2C3D4, 0)
+	binary.little_endian_put_u16_at(mut out, 2, 4) // format version 2.4
+	binary.little_endian_put_u16_at(mut out, 4, 6)
+	binary.little_endian_put_u32_at(mut out, 65535, 16) // snapshot length
+	binary.little_endian_put_u32_at(mut out, u32(frames[0].linktype), 20)
+	mut pos := 24
+	for f in frames {
+		sec := math.floor(f.timestamp)
+		usec := math.min(math.round((f.timestamp - sec) * 1e6), 999_999.0)
+		binary.little_endian_put_u32_at(mut out, u32(sec), pos)
+		binary.little_endian_put_u32_at(mut out, u32(usec), pos + 4)
+		binary.little_endian_put_u32_at(mut out, u32(f.data.len), pos + 8)
+		binary.little_endian_put_u32_at(mut out, u32(f.data.len), pos + 12)
+		copy(mut out[pos + 16..], f.data)
+		pos += 16 + f.data.len
+	}
+	os.write_bytes(path, out)!
 }
 
 fn read_pcap(raw []u8, nanos bool) ![]CapturedFrame {

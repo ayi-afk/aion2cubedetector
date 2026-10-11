@@ -13,6 +13,9 @@ struct Options {
 	port      int
 	interval  f64
 	positions bool
+	analyze   bool
+	near      f64
+	at        string
 }
 
 fn main() {
@@ -24,6 +27,9 @@ fn main() {
 	port := fp.int('port', `p`, proto.default_port, 'game server TCP port')
 	interval := fp.float('interval', `i`, 2.0, 'seconds between printed player positions')
 	positions := fp.bool('positions', 0, true, 'print player positions')
+	analyze_capture := fp.bool('analyze', `a`, false, 'list every spawned template, the opcodes and messages with a position near you')
+	near := fp.float('near', 0, 1000.0, '--analyze: distance (world units) that counts as near you')
+	at := fp.string('at', 0, '', '--analyze: your position as x,y,z when the capture holds none')
 	files := fp.finalize() or {
 		eprintln(err)
 		println(fp.usage())
@@ -33,7 +39,7 @@ fn main() {
 		println(fp.usage())
 		exit(2)
 	}
-	opts := Options{port, interval, positions}
+	opts := Options{port, interval, positions, analyze_capture, near, at}
 	for file in files {
 		replay(file, opts) or {
 			eprintln('${file}: ${err}')
@@ -55,7 +61,10 @@ fn who(dec proto.Decoder, actor u64) string {
 fn replay(file string, opts Options) ! {
 	frames := proto.read_capture_file(file)!
 	println('== ${file}: ${frames.len} frames')
-	mut dec := proto.Decoder{}
+	mut dec := proto.Decoder{
+		trace: opts.analyze
+	}
+	mut fixes := []proto.Event{}
 	mut streams := map[string]&proto.Stream{}
 	mut payload_bytes := 0
 	mut last_print := 0.0
@@ -83,6 +92,7 @@ fn replay(file string, opts Options) ! {
 				}
 				.player {
 					player = ev
+					fixes << ev
 					player_count++
 					if opts.positions && ev.timestamp - last_print >= opts.interval {
 						last_print = ev.timestamp
@@ -116,4 +126,7 @@ fn replay(file string, opts Options) ! {
 		}
 	}
 	println('-- ${streams.len} flow(s), ${payload_bytes} payload bytes, ${player_count} player positions, ${cubes.len} cube(s)')
+	if opts.analyze {
+		analyze(dec.messages, fixes, opts)
+	}
 }

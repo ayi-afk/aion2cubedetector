@@ -145,12 +145,49 @@ All `data\cubes_*.csv` files are loaded at start. Tick "History" (next to
 "Compass range") to see them instead of the cube list. Replays do not write
 history.
 
+## Save packets
+
+Cube Watch always keeps the last 60 seconds of game server packets in
+memory (only frames with data from the game server port; nothing else on
+the adapter, at most 64 MB). "Save packets" (first row under the list, or
+the tray menu) writes them to `data\packets_<date>_<time>.pcap` next to
+`cube_watch.exe` and opens that folder with the file selected, ready to be
+sent. Click it right after something the app did not recognize (e.g. a new
+kind of cube) and analyze the file later in Wireshark or with the replay
+tools below. The buffer survives Stop / Start and is cleared when another
+adapter type is selected.
+
+Each packet is saved whole and unchanged (Ethernet / IP / TCP headers and
+all data), so the file holds everything the server sent in that minute -
+chat included - plus the PC's local IP and network card address. Send it
+only to people you trust. Packets from the game client are not captured
+(they are encrypted).
+
 ## Replay
 
 - `cube_watch.exe --replay capture.pcapng` plays a saved capture into the
   window in real time (does not touch your settings).
 - `tools\replay\replay.exe capture.pcapng` prints the decoded events in the
   console (`v -o tools\replay\replay.exe tools\replay` to build it).
+
+### Finding unknown objects
+
+`tools\replay\replay.exe --analyze data\packets_....pcap` is for objects
+Cube Watch does not show yet (e.g. cubes of another world, other items):
+
+- every spawned template (`34 36`) with the number of spawns, how many of
+  its objects a player opened and how many were destroyed, and the distance
+  from you to the nearest one. Cubes get opened and destroyed, so their
+  template is listed first; the known cube is marked.
+- every opcode with its count and message size.
+- every message that carries a position within `--near` units (default
+  1,000) of you, as opcode and byte offset - this also finds objects sent
+  with another opcode. Without a player position in the capture pass yours
+  with `--at x,y,z`.
+
+The spawn message is sent when the object comes into view (about 15,000
+units away), so save the packets within a minute of that - e.g. right after
+arriving next to the object, or walk out of range and back.
 
 ## Protocol notes
 
@@ -224,7 +261,8 @@ If a source moves to a different root CA, add that root (PEM) to
 ## Layout
 
 - `proto/` - TCP reassembly, frame / LZ4 bundle parsing, cube and player
-  decoding (unit tested, no Windows dependencies).
+  decoding, pcap reading / writing and the last-minute frame buffer (unit
+  tested, no Windows dependencies).
 - `capture.v` - Npcap loading, adapter selection, capture thread.
 - `app.v`, `icon.v`, `win32.v` - Win32 GUI and tray.
 - `sound.v`, `settings.v` - alerts and persisted preferences.

@@ -84,6 +84,7 @@ enum Ctl {
 	auto_clear_label
 	auto_clear
 	overlay_history
+	save_packets
 }
 
 // Controls shown only in the standard (full) view.
@@ -93,7 +94,7 @@ const standard_only_controls = [Ctl.status, .adapter_label, .adapter, .start_sto
 	.rotate_north, .range_label, .compass_range, .overlay, .overlay_ui_label, .overlay_ui,
 	.overlay_zoom_label, .overlay_zoom, .overlay_opacity_label, .overlay_opacity, .overlay_unlock,
 	.overlay_reset, .history_toggle, .history, .overlay_xyz, .xyz_alpha, .xyz_order, .overlay_ring,
-	.ring_radius, .auto_clear_label, .auto_clear, .overlay_history]
+	.ring_radius, .auto_clear_label, .auto_clear, .overlay_history, .save_packets]
 
 // List view columns.
 const col_seen = 1
@@ -113,6 +114,7 @@ enum TrayCmd {
 	overlay
 	overlay_unlock
 	clear_cubes
+	save_packets
 	exit
 }
 
@@ -332,6 +334,7 @@ fn (mut app App) on_create() {
 	}
 	C.SendMessageW(ranges, cb_setcursel, usize(compass_ranges.index(app.settings.compass_range)),
 		0)
+	app.add(.save_packets, 'BUTTON', 'Save packets', ws_tabstop | bs_pushbutton, 0)
 	app.add(.sound_label, 'STATIC', 'Alert:', 0, 0)
 	modes := app.add(.sound_mode, 'COMBOBOX', '', ws_tabstop | ws_vscroll | cbs_dropdownlist,
 		0)
@@ -518,6 +521,7 @@ fn (mut app App) layout() {
 	app.place(.compass_range, range_x + range_label_w, by, app.s(100), app.s(200))
 	app.place(.history_toggle, range_x + range_label_w + app.s(100) + 2 * gap, by, app.s(80),
 		row)
+	app.place(.save_packets, w - m - btn_w, by, btn_w, row)
 	by += row + gap
 
 	mode_w := app.s(130)
@@ -752,6 +756,52 @@ fn (mut app App) on_capture_events() {
 				}
 			}
 		}
+	}
+}
+
+// save_packets writes the game server frames of the last minute (kept in
+// memory by the capture thread) to data/packets_<date>_<time>.pcap next to
+// the exe, for offline analysis (Wireshark, tools/replay, --replay).
+fn (mut app App) save_packets() {
+	frames := app.capture.recent_frames()
+	if frames.len == 0 {
+		app.report('No game server packets captured yet - nothing to save.', false)
+		return
+	}
+	os.mkdir_all(data_dir()) or {
+		app.report('Cannot create ${data_dir()}: ${err}', true)
+		return
+	}
+	name := 'packets_${time.now().custom_format('YYYY-MM-DD_HHmmss')}.pcap'
+	path := os.join_path(data_dir(), name)
+	proto.write_pcap(path, frames) or {
+		app.report('Cannot save packets: ${err}', true)
+		return
+	}
+	seconds := frames.last().timestamp - frames[0].timestamp
+	app.report('Saved ${frames.len} game server packets (${seconds:.0f} s) to data\\${name}',
+		false)
+	app.show_in_explorer(path)
+}
+
+// show_in_explorer opens the file's folder with the file selected, so it
+// can be dragged straight into a chat.
+fn (app &App) show_in_explorer(path string) {
+	f := proc_address('shell32.dll', 'ShellExecuteW')
+	if f == unsafe { nil } {
+		return
+	}
+	call_shellexecute := FnShellExecute(f)
+	_ := call_shellexecute(app.hwnd, 'open'.to_wide(), 'explorer.exe'.to_wide(), '/select,"${path}"'.to_wide(),
+		unsafe { nil }, sw_show)
+}
+
+// report sets the status line and, while the window is hidden, also shows
+// the text as a tray balloon.
+fn (mut app App) report(text string, is_error bool) {
+	app.set_status(text, is_error)
+	if C.IsWindowVisible(app.hwnd) == 0 || C.IsIconic(app.hwnd) != 0 {
+		app.balloon(app_title, text)
 	}
 }
 
@@ -1334,6 +1384,7 @@ fn (mut app App) tray_menu() {
 		usize(int(TrayCmd.compact)), 'Compact view'.to_wide())
 	C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.calibrate)), 'Calibrate north'.to_wide())
 	C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.clear_cubes)), 'Clear cubes'.to_wide())
+	C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.save_packets)), 'Save packets (last minute)'.to_wide())
 	C.AppendMenuW(menu, mf_string | if app.settings.overlay { mf_checked } else { u32(0) },
 		usize(int(TrayCmd.overlay)), 'Map overlay'.to_wide())
 	if app.settings.overlay {
@@ -1377,6 +1428,9 @@ fn (mut app App) tray_menu() {
 		}
 		int(TrayCmd.clear_cubes) {
 			app.clear_cubes()
+		}
+		int(TrayCmd.save_packets) {
+			app.save_packets()
 		}
 		int(TrayCmd.overlay) {
 			app.set_overlay(!app.settings.overlay)
@@ -1501,6 +1555,9 @@ fn (mut app App) on_command(id int, code int) {
 		}
 		int(Ctl.copy) {
 			app.copy_selected()
+		}
+		int(Ctl.save_packets) {
+			app.save_packets()
 		}
 		int(Ctl.sound_mode) {
 			if code != cbn_selchange {
