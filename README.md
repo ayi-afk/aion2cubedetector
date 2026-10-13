@@ -135,6 +135,32 @@ Markers move when the game reports your position (see "Compass").
   before - green when they were mostly taken by you, red when mostly by
   others, grey when nobody was seen taking them.
 
+## Map overlay 2 (the large map)
+
+"Map overlay 2" (last row, or the tray menu) is a second transparent,
+click-through window, meant for the game's large see-through map (the one
+with the "Map Opacity" slider), which keeps your character in its middle.
+It shows:
+
+- the cubes Cube Watch sees itself, in their list colors with the distance,
+  and a red X where one was just taken - as on the minimap overlay;
+- what the backend knows to be there right now on your game server: a full
+  dot with a white rim, in the color of its group;
+- "History": every place something was seen at before - small faint dots,
+  with the time until the next one ("12m", "due") where the backend expects
+  one. Without a backend the places of this PC's own history files;
+- "Players": the other Cube Watch players on your game server and map, with
+  their names.
+
+"Unlock" to place it: drag it over the game's map (edges resize) until the
+cross sits on your arrow, then set the zoom with the mouse wheel (or the
+"Zoom" list: world units across the overlay) until the marks sit on their
+places of the map; right-click or "Lock" when done. The game's map can be
+zoomed too - the overlay's zoom has to follow it. "Opacity" and "Reset" work
+as for the first overlay. The backend only sends this while the overlay is
+on (the other players every 2 seconds), and an older backend sends nothing:
+then only your own cubes are drawn.
+
 ## Cube history
 
 Every cube is written to `data\cubes_<8 random letters>.csv` next to
@@ -410,6 +436,7 @@ If a source moves to a different root CA, add that root (PEM) to
 - `tools/envgen` - writes `build_remote.v` (backend address) from `.env`;
   `tools/fakeclient` - plays a client against a backend.
 - `capture.v` - Npcap loading, adapter selection, capture thread.
+- `overlay.v`, `overlay2.v` - the minimap overlay and the one for the large map.
 - `app.v`, `icon.v`, `win32.v` - Win32 GUI and tray.
 - `sound.v`, `settings.v` - alerts and persisted preferences.
 - `trial.v`, `trial_pins.v`, `tools/stamp/` - 7-day trial check, pinned

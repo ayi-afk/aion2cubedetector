@@ -166,11 +166,11 @@ fn set_dark_title_bar(hwnd voidptr, dark bool) {
 // Controls grouped by how they are themed.
 const themed_push_buttons = [Ctl.install_npcap, .run_as_admin, .start_stop, .redetect, .view_toggle,
 	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north, .overlay_unlock, .overlay_reset,
-	.save_packets, .tab_cubes, .tab_objects]
+	.save_packets, .tab_cubes, .tab_objects, .overlay2_unlock, .overlay2_reset]
 const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode, .overlay, .history_toggle,
-	.overlay_xyz, .overlay_ring, .overlay_history]
+	.overlay_xyz, .overlay_ring, .overlay_history, .overlay2, .overlay2_history, .overlay2_players]
 const themed_fields = [Ctl.adapter, .sound_mode, .sound_file, .compass_range, .xyz_order, .overlay_ui,
-	.overlay_zoom, .overlay_opacity]
+	.overlay_zoom, .overlay_opacity, .overlay2_zoom, .overlay2_opacity]
 
 // apply_theme recolors every control for the current theme setting.
 fn (mut app App) apply_theme() {

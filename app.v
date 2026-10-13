@@ -94,6 +94,15 @@ enum Ctl {
 	tab_cubes
 	tab_objects
 	objects
+	overlay2
+	overlay2_zoom_label
+	overlay2_zoom
+	overlay2_opacity_label
+	overlay2_opacity
+	overlay2_unlock
+	overlay2_reset
+	overlay2_history
+	overlay2_players
 }
 
 // Controls shown only in the standard (full) view.
@@ -104,7 +113,8 @@ const standard_only_controls = [Ctl.status, .adapter_label, .adapter, .start_sto
 	.overlay_zoom_label, .overlay_zoom, .overlay_opacity_label, .overlay_opacity, .overlay_unlock,
 	.overlay_reset, .history_toggle, .history, .overlay_xyz, .xyz_alpha, .xyz_order, .overlay_ring,
 	.ring_radius, .auto_clear_label, .auto_clear, .overlay_history, .save_packets, .tab_cubes,
-	.tab_objects, .objects]
+	.tab_objects, .objects, .overlay2, .overlay2_zoom_label, .overlay2_zoom, .overlay2_opacity_label,
+	.overlay2_opacity, .overlay2_unlock, .overlay2_reset, .overlay2_history, .overlay2_players]
 
 // List view columns.
 const col_seen = 1
@@ -125,6 +135,8 @@ enum TrayCmd {
 	overlay_unlock
 	clear_cubes
 	save_packets
+	overlay2
+	overlay2_unlock
 	exit
 }
 
@@ -216,6 +228,18 @@ mut:
 	overlay_drag_rect  Rect
 	overlay_topmost_at f64
 	overlay_ref        ?proto.Vec3 // zoom reference point while unlocked
+	// Second map overlay (overlay2.v) and what the backend said is around:
+	// the tracked places of this map, the other players, and the backend's
+	// clock minus this PC's (seconds).
+	overlay2_hwnd      voidptr
+	overlay2_unlocked  bool
+	overlay2_drag      int = -1
+	overlay2_drag_pt   Point
+	overlay2_drag_rect Rect
+	overlay2_ref       ?proto.Vec3
+	area_spots         []wire.AreaSpot
+	area_people        []wire.AreaPerson
+	area_skew          f64
 	trial_ended        bool
 	npcap              ?Npcap
 	devices            []Device
@@ -419,6 +443,19 @@ fn (mut app App) on_create() {
 		0)
 	C.SendMessageW(app.ctl(.overlay_history), bm_setcheck, usize(app.settings.overlay_history),
 		0)
+	app.add(.overlay2, 'BUTTON', 'Map overlay 2', ws_tabstop | bs_autocheckbox, 0)
+	app.add(.overlay2_zoom_label, 'STATIC', 'Zoom:', 0, 0)
+	app.add_choices(.overlay2_zoom, []string{}, 0)
+	app.add(.overlay2_opacity_label, 'STATIC', 'Opacity:', 0, 0)
+	app.add_choices(.overlay2_opacity, overlay_opacities.map('${it} %'), overlay_opacities.index(app.settings.overlay2_opacity))
+	app.add(.overlay2_unlock, 'BUTTON', 'Unlock', ws_tabstop | bs_pushbutton, 0)
+	app.add(.overlay2_reset, 'BUTTON', 'Reset', ws_tabstop | bs_pushbutton, 0)
+	history2 := app.add(.overlay2_history, 'BUTTON', 'History', ws_tabstop | bs_autocheckbox,
+		0)
+	C.SendMessageW(history2, bm_setcheck, usize(app.settings.overlay2_history), 0)
+	players2 := app.add(.overlay2_players, 'BUTTON', 'Players', ws_tabstop | bs_autocheckbox,
+		0)
+	C.SendMessageW(players2, bm_setcheck, usize(app.settings.overlay2_players), 0)
 
 	app.taskbar_created = C.RegisterWindowMessageW('TaskbarCreated'.to_wide())
 	app.start_remote()
@@ -427,6 +464,7 @@ fn (mut app App) on_create() {
 	app.apply_opacity()
 	app.apply_topmost()
 	app.apply_overlay()
+	app.apply_overlay2()
 	app.update_sound_controls()
 	app.layout()
 	C.SetTimer(app.hwnd, timer_refresh, 250, unsafe { nil })
@@ -545,7 +583,7 @@ fn (mut app App) layout() {
 	app.place(.tab_objects, m + btn_w + gap, y, btn_w, row)
 	tabs_h := row + gap
 
-	bottom_rows := 5
+	bottom_rows := 6
 	list_bottom := h - m - bottom_rows * row - (bottom_rows - 1) * gap - gap
 	compass_w := app.s(190)
 	area_h := math.max(list_bottom - y, app.s(60) + tabs_h)
@@ -625,6 +663,25 @@ fn (mut app App) layout() {
 			row
 		})
 		ox += cw + gap
+	}
+	by += row + gap
+
+	ox = m
+	for item in [[int(Ctl.overlay2), 104], [int(Ctl.overlay2_zoom_label), 40],
+		[int(Ctl.overlay2_zoom), 80], [int(Ctl.overlay2_opacity_label), 52],
+		[int(Ctl.overlay2_opacity), 66], [int(Ctl.overlay2_unlock), 70],
+		[int(Ctl.overlay2_reset), 60], [int(Ctl.overlay2_history), 68],
+		[int(Ctl.overlay2_players), 68]] {
+		id := unsafe { Ctl(item[0]) }
+		cw := app.s(item[1])
+		is_label := id in [.overlay2_zoom_label, .overlay2_opacity_label]
+		is_combo := id in [.overlay2_zoom, .overlay2_opacity]
+		app.place(id, ox, if is_label { by + text_off } else { by }, cw, if is_combo {
+			app.s(200)
+		} else {
+			row
+		})
+		ox += cw + if is_label { 0 } else { gap }
 	}
 	// The History list takes the cube list's place while "History" is ticked,
 	// the Objects list on its tab.
@@ -1306,6 +1363,7 @@ fn (mut app App) set_targets(targets []Target, stale bool) {
 	app.targets = targets
 	app.targets_stale = stale
 	app.render_overlay()
+	app.render_overlay2()
 	C.InvalidateRect(app.ctl(.compass), unsafe { nil }, 0)
 	C.InvalidateRect(app.ctl(.list), unsafe { nil }, 0) // row colors follow state
 }
@@ -1531,6 +1589,15 @@ fn (mut app App) tray_menu() {
 			'Unlock map overlay (move / resize)'.to_wide()
 		})
 	}
+	C.AppendMenuW(menu, mf_string | if app.settings.overlay2 { mf_checked } else { u32(0) },
+		usize(int(TrayCmd.overlay2)), 'Map overlay 2 (large map)'.to_wide())
+	if app.settings.overlay2 {
+		C.AppendMenuW(menu, mf_string, usize(int(TrayCmd.overlay2_unlock)), if app.overlay2_unlocked {
+			'Lock map overlay 2'.to_wide()
+		} else {
+			'Unlock map overlay 2 (move / resize)'.to_wide()
+		})
+	}
 	C.AppendMenuW(menu, mf_string | if app.theme.dark { mf_checked } else { u32(0) },
 		usize(int(TrayCmd.dark_mode)), 'Dark mode'.to_wide())
 	C.AppendMenuW(menu, mf_separator, 0, unsafe { nil })
@@ -1574,6 +1641,12 @@ fn (mut app App) tray_menu() {
 		}
 		int(TrayCmd.overlay_unlock) {
 			app.set_overlay_unlocked(!app.overlay_unlocked)
+		}
+		int(TrayCmd.overlay2) {
+			app.set_overlay2(!app.settings.overlay2)
+		}
+		int(TrayCmd.overlay2_unlock) {
+			app.set_overlay2_unlocked(!app.overlay2_unlocked)
 		}
 		int(TrayCmd.exit) {
 			C.DestroyWindow(app.hwnd)
@@ -1749,6 +1822,30 @@ fn (mut app App) on_command(id int, code int) {
 		}
 		int(Ctl.overlay_reset) {
 			app.reset_overlay_position()
+		}
+		int(Ctl.overlay2) {
+			app.set_overlay2(C.SendMessageW(app.ctl(.overlay2), bm_getcheck, 0, 0) == 1)
+		}
+		int(Ctl.overlay2_zoom), int(Ctl.overlay2_opacity) {
+			if code == cbn_selchange {
+				app.on_overlay2_choice(unsafe { Ctl(id) })
+			}
+		}
+		int(Ctl.overlay2_unlock) {
+			app.set_overlay2_unlocked(!app.overlay2_unlocked)
+		}
+		int(Ctl.overlay2_reset) {
+			app.reset_overlay2_position()
+		}
+		int(Ctl.overlay2_history), int(Ctl.overlay2_players) {
+			checked := C.SendMessageW(app.ctl(unsafe { Ctl(id) }), bm_getcheck, 0, 0) == 1
+			if id == int(Ctl.overlay2_history) {
+				app.settings.overlay2_history = checked
+			} else {
+				app.settings.overlay2_players = checked
+			}
+			app.save()
+			app.render_overlay2()
 		}
 		int(Ctl.xyz_order) {
 			if code == cbn_selchange {
@@ -1932,7 +2029,7 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			info.min_track = if app.settings.compact {
 				Point{app.s(180), app.s(230)}
 			} else {
-				Point{app.s(640), app.s(460)}
+				Point{app.s(640), app.s(490)}
 			}
 			return 0
 		}
@@ -1984,6 +2081,9 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			}
 			if app.overlay_hwnd != unsafe { nil } {
 				C.DestroyWindow(app.overlay_hwnd)
+			}
+			if app.overlay2_hwnd != unsafe { nil } {
+				C.DestroyWindow(app.overlay2_hwnd)
 			}
 			app.save()
 			app.capture.request_stop()
@@ -2133,6 +2233,7 @@ fn run_app(start_hidden bool, replay_path string) int {
 	app.bold_font = bold_ui_font()
 	register_compass_class(app.instance)
 	register_overlay_class(app.instance)
+	register_overlay2_class(app.instance)
 	app.icon = make_cube_icon()
 
 	cls := WndClassEx{

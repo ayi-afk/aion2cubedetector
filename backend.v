@@ -55,6 +55,11 @@ fn (mut app App) on_remote() {
 	if online != app.remote_online {
 		app.remote_online = online
 		app.dirty = true
+		if !online {
+			// where the others are is only true while the backend says so
+			app.area_people = []
+			app.render_overlay2()
+		}
 	}
 	// Say once why the backend cannot be reached (not at every retry).
 	problem := app.remote.problem()
@@ -74,6 +79,7 @@ fn (mut app App) on_remote() {
 				app.objects_dirty = true
 				// The backend is (back) online or tracks other things now:
 				// tell it everything that is in view.
+				app.remote_watch()
 				app.remote_me(true)
 				for o in app.objects {
 					app.remote_seen(o)
@@ -84,6 +90,15 @@ fn (mut app App) on_remote() {
 			}
 			wire.t_nearby {
 				app.remote_near(msg.msg)
+			}
+			wire.t_spots {
+				app.area_spots = msg.spots
+				app.area_skew = f64(msg.now) - now_seconds()
+				app.render_overlay2()
+			}
+			wire.t_people {
+				app.area_people = msg.people
+				app.render_overlay2()
 			}
 			else {}
 		}
@@ -102,6 +117,22 @@ fn (app &App) kind_name(category string, template u32) string {
 
 fn (app &App) remote_tracks(category string, template u32) bool {
 	return app.remote_online && wire.kind_key(category, template) in app.remote_kinds
+}
+
+// remote_watch tells the backend whether the second map overlay is on: only
+// then it sends the tracked places and the other players around (overlay2.v).
+fn (mut app App) remote_watch() {
+	if !app.remote_online {
+		return
+	}
+	app.remote.send(wire.ClientMsg{
+		t:     wire.t_watch
+		watch: app.settings.overlay2
+	})
+	if !app.settings.overlay2 {
+		app.area_spots = []
+		app.area_people = []
+	}
 }
 
 // remote_me reports the character's last known position; `force` skips

@@ -210,27 +210,31 @@ fn (mut app App) reset_overlay_position() {
 	app.apply_overlay()
 }
 
-// keep_overlay_on_top re-asserts topmost; some games push themselves above
-// topmost windows when they regain focus.
+// keep_overlay_on_top re-asserts topmost for both overlays; some games push
+// themselves above topmost windows when they regain focus.
 fn (mut app App) keep_overlay_on_top() {
-	if app.overlay_hwnd == unsafe { nil } || !app.settings.overlay {
-		return
-	}
 	now := now_seconds()
 	if now - app.overlay_topmost_at < 2.0 {
 		return
 	}
 	app.overlay_topmost_at = now
-	C.SetWindowPos(app.overlay_hwnd, voidptr(isize(hwnd_topmost)), 0, 0, 0, 0, swp_nomove | swp_nosize | swp_noactivate)
+	if app.overlay_hwnd != unsafe { nil } && app.settings.overlay {
+		C.SetWindowPos(app.overlay_hwnd, voidptr(isize(hwnd_topmost)), 0, 0, 0, 0, swp_nomove | swp_nosize | swp_noactivate)
+	}
+	if app.overlay2_hwnd != unsafe { nil } && app.settings.overlay2 {
+		C.SetWindowPos(app.overlay2_hwnd, voidptr(isize(hwnd_topmost)), 0, 0, 0, 0, swp_nomove | swp_nosize | swp_noactivate)
+	}
 }
 
 // ---- mouse: move / resize while unlocked ------------------------------------
 
-fn (app &App) overlay_cursor_edges() (int, Point) {
+// overlay_cursor_edges: which edges of an overlay window the cursor is on
+// (0 = inside: move), and where the cursor is.
+fn (app &App) overlay_cursor_edges(hwnd voidptr) (int, Point) {
 	mut pt := Point{}
 	C.GetCursorPos(&pt)
 	mut rc := Rect{}
-	C.GetWindowRect(app.overlay_hwnd, &rc)
+	C.GetWindowRect(hwnd, &rc)
 	grip := app.s(8)
 	mut edges := 0
 	if pt.x < rc.left + grip {
@@ -256,6 +260,29 @@ fn edges_cursor(edges int) voidptr {
 	}
 }
 
+// dragged_rect is an overlay's rectangle after a drag by (dx, dy) that
+// started at `start` on the edges `e` (0 = the whole window moves).
+fn (app &App) dragged_rect(start Rect, e int, dx int, dy int) Rect {
+	mut rc := start
+	min_w, min_h := app.s(80), app.s(60)
+	if e == 0 {
+		rc = Rect{rc.left + dx, rc.top + dy, rc.right + dx, rc.bottom + dy}
+	}
+	if e & edge_left != 0 {
+		rc.left = math.min(rc.left + dx, rc.right - min_w)
+	}
+	if e & edge_right != 0 {
+		rc.right = math.max(rc.right + dx, rc.left + min_w)
+	}
+	if e & edge_top != 0 {
+		rc.top = math.min(rc.top + dy, rc.bottom - min_h)
+	}
+	if e & edge_bottom != 0 {
+		rc.bottom = math.max(rc.bottom + dy, rc.top + min_h)
+	}
+	return rc
+}
+
 fn (mut app App) overlay_message(msg u32, wparam usize) ?isize {
 	match msg {
 		wm_mouseactivate {
@@ -267,7 +294,7 @@ fn (mut app App) overlay_message(msg u32, wparam usize) ?isize {
 			}
 			mut edges := app.overlay_drag
 			if edges < 0 {
-				edges, _ = app.overlay_cursor_edges()
+				edges, _ = app.overlay_cursor_edges(app.overlay_hwnd)
 			}
 			C.SetCursor(C.LoadCursorW(unsafe { nil }, edges_cursor(edges)))
 			return 1
@@ -276,7 +303,7 @@ fn (mut app App) overlay_message(msg u32, wparam usize) ?isize {
 			if !app.overlay_unlocked {
 				return none
 			}
-			edges, pt := app.overlay_cursor_edges()
+			edges, pt := app.overlay_cursor_edges(app.overlay_hwnd)
 			app.overlay_drag = edges
 			app.overlay_drag_pt = pt
 			C.GetWindowRect(app.overlay_hwnd, &app.overlay_drag_rect)
@@ -289,25 +316,8 @@ fn (mut app App) overlay_message(msg u32, wparam usize) ?isize {
 			}
 			mut pt := Point{}
 			C.GetCursorPos(&pt)
-			dx, dy := pt.x - app.overlay_drag_pt.x, pt.y - app.overlay_drag_pt.y
-			mut rc := app.overlay_drag_rect
-			e := app.overlay_drag
-			min_w, min_h := app.s(80), app.s(60)
-			if e == 0 {
-				rc = Rect{rc.left + dx, rc.top + dy, rc.right + dx, rc.bottom + dy}
-			}
-			if e & edge_left != 0 {
-				rc.left = math.min(rc.left + dx, rc.right - min_w)
-			}
-			if e & edge_right != 0 {
-				rc.right = math.max(rc.right + dx, rc.left + min_w)
-			}
-			if e & edge_top != 0 {
-				rc.top = math.min(rc.top + dy, rc.bottom - min_h)
-			}
-			if e & edge_bottom != 0 {
-				rc.bottom = math.max(rc.bottom + dy, rc.top + min_h)
-			}
+			rc := app.dragged_rect(app.overlay_drag_rect, app.overlay_drag, pt.x - app.overlay_drag_pt.x,
+				pt.y - app.overlay_drag_pt.y)
 			C.SetWindowPos(app.overlay_hwnd, unsafe { nil }, rc.left, rc.top, rc.right - rc.left,
 				rc.bottom - rc.top, swp_nozorder | swp_noactivate)
 			app.render_overlay()
@@ -360,9 +370,20 @@ fn (mut app App) render_overlay() {
 	if app.overlay_hwnd == unsafe { nil } || !app.settings.overlay {
 		return
 	}
+	opacity := if app.overlay_unlocked {
+		math.max(app.settings.overlay_opacity, 70)
+	} else {
+		app.settings.overlay_opacity
+	}
+	app.paint_layered(app.overlay_hwnd, opacity, false)
+}
+
+// paint_layered draws an overlay window anew with per-pixel alpha: the
+// minimap overlay, or the second one (overlay2.v) when `second`.
+fn (mut app App) paint_layered(hwnd voidptr, opacity int, second bool) {
 	g := app.gdip or { return }
 	mut rc := Rect{}
-	C.GetWindowRect(app.overlay_hwnd, &rc)
+	C.GetWindowRect(hwnd, &rc)
 	w, h := rc.right - rc.left, rc.bottom - rc.top
 	if w <= 0 || h <= 0 {
 		return
@@ -395,20 +416,19 @@ fn (mut app App) render_overlay() {
 			g.set_smoothing(gr, gdip_smoothing_antialias)
 			g.clear(gr, 0)
 			c := Canvas{&g, gr}
-			strip := app.overlay_strip_h(w)
-			if strip > 0 {
-				app.draw_xyz(c, w, strip)
-				g.translate(gr, 0, f32(strip), 0)
+			if second {
+				app.draw_overlay2(c, w, h)
+			} else {
+				strip := app.overlay_strip_h(w)
+				if strip > 0 {
+					app.draw_xyz(c, w, strip)
+					g.translate(gr, 0, f32(strip), 0)
+				}
+				app.draw_overlay(c, w, h - strip)
 			}
-			app.draw_overlay(c, w, h - strip)
 			g.delete_graphics(gr)
 		}
 		g.dispose_image(img)
-	}
-	opacity := if app.overlay_unlocked {
-		math.max(app.settings.overlay_opacity, 70)
-	} else {
-		app.settings.overlay_opacity
 	}
 	blend := BlendFunction{
 		alpha:  u8(opacity * 255 / 100)
@@ -420,7 +440,7 @@ fn (mut app App) render_overlay() {
 	ulw := proc_address('user32.dll', 'UpdateLayeredWindow')
 	if ulw != unsafe { nil } {
 		update := FnUpdateLayeredWindow(ulw)
-		update(app.overlay_hwnd, screen, &dst, &size, mem, &src, 0, &blend, ulw_alpha)
+		update(hwnd, screen, &dst, &size, mem, &src, 0, &blend, ulw_alpha)
 	}
 	C.SelectObject(mem, old)
 	C.DeleteObject(dib)

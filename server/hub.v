@@ -38,6 +38,11 @@ const people_interval = 500 * time.millisecond
 // A peer that sent nothing for this long is gone (clients and pages ping
 // every 20 - 25 s).
 const peer_silence = 75 * time.second
+// Clients that watch the area around them (the second map overlay) are told
+// about the other players this often, and about the tracked places at most
+// every area_spots_seconds (when something changed).
+const area_interval = 2 * time.second
+const area_spots_seconds = i64(5)
 // Name of a player whose client does not know its character's name yet,
 // followed by a few characters that tell such players apart.
 const unknown_prefix = 'Unknown-'
@@ -57,6 +62,12 @@ mut:
 	near_at i64
 	since   i64
 	last    i64
+	// The client wants to be told what is around it (wire.t_watch); what
+	// it was last sent the places of (game server and map, hub.area_rev) and when.
+	watch    bool
+	area_key string
+	area_rev u64
+	area_at  i64
 }
 
 // Outgoing says who gets a message.
@@ -113,6 +124,7 @@ mut:
 	moved_people map[string]bool // only moved since the last batch to the browsers
 	started      i64
 	reports      i64 // sightings applied since start
+	area_rev     u64 = 1 // goes up when a place or what is at one changed
 }
 
 fn now_unix() i64 {
@@ -515,6 +527,7 @@ fn (h &Hub) kinds_text() string {
 // config_changed tells everybody about new groups / kinds / maps. Call with `mu` held.
 fn (mut h Hub) config_changed() {
 	h.w.refresh_expected()
+	h.area_rev++
 	h.send(Outgoing{
 		viewers: true
 		text:    h.init_json()
@@ -607,6 +620,12 @@ fn (mut h Hub) on_client_text(id string, text string) {
 		h.sessions[id] = ses
 		return
 	}
+	if msg.t == wire.t_watch {
+		ses.watch = msg.watch
+		ses.area_key = '' // the places are sent again
+		h.sessions[id] = ses
+		return
+	}
 	if !valid_position(msg) {
 		return
 	}
@@ -678,6 +697,7 @@ fn (mut h Hub) on_client_text(id string, text string) {
 			}
 			if st := state {
 				h.reports++
+				h.area_rev++
 				h.send(Outgoing{
 					viewers: true
 					text:    json2.encode(StateMsg{
@@ -689,6 +709,97 @@ fn (mut h Hub) on_client_text(id string, text string) {
 			}
 		}
 		else {}
+	}
+}
+
+// ---- what watching clients get ----------------------------------------------------------------
+
+// group_rgb reads a group's color ('#f5a623') as 0xRRGGBB.
+fn group_rgb(color string) u32 {
+	return u32(color.trim_left('#').parse_uint(16, 32) or { 0xf5a623 })
+}
+
+// spots_text is the t_spots message: every tracked place of a map that is
+// not hidden, with what is there on one game server. Call with `mu` held.
+fn (h &Hub) spots_text(server int, map_id u32, now i64) string {
+	mut msg := wire.ServerMsg{
+		t:   wire.t_spots
+		now: now
+		map: map_id
+	}
+	for _, s in h.w.spots {
+		if s.map != map_id || s.hidden {
+			continue
+		}
+		kind := h.w.kinds['${s.cat}:${s.tpl}'] or { continue }
+		group := h.w.groups[kind.group_id] or { world.Group{} }
+		st := h.w.states[world.state_key(server, s.id)] or { world.State{} }
+		msg.spots << wire.AreaSpot{
+			cat:      s.cat
+			tpl:      s.tpl
+			x:        s.x
+			y:        s.y
+			z:        s.z
+			present:  st.present
+			expected: st.expected
+			spawns:   s.spawns
+			color:    group_rgb(group.color)
+		}
+	}
+	return msg.encode()
+}
+
+// area_loop tells every client that asked for it (wire.t_watch) what the
+// backend knows around its character: the other players on its game server
+// and map every two seconds, and the tracked places of that map when the
+// character came to it or something there changed.
+fn (mut h Hub) area_loop() {
+	for {
+		time.sleep(area_interval)
+		now := now_unix()
+		mut out := []Outgoing{}
+		mut sent := map[string]ClientSession{}
+		h.mu.lock()
+		for id, ses in h.sessions {
+			if !ses.watch || !ses.authed || ses.person == '' {
+				continue
+			}
+			map_id := h.canonical_map(ses.map)
+			mut people := wire.ServerMsg{
+				t:   wire.t_people
+				now: now
+			}
+			for key, p in h.w.people {
+				if key != ses.person && p.server == ses.server && p.map == map_id {
+					people.people << wire.AreaPerson{p.name, p.x, p.y, p.z}
+				}
+			}
+			out << Outgoing{
+				client: id
+				text:   people.encode()
+			}
+			key := '${ses.server}:${map_id}'
+			if key != ses.area_key
+				|| (ses.area_rev != h.area_rev && now - ses.area_at >= area_spots_seconds) {
+				out << Outgoing{
+					client: id
+					text:   h.spots_text(ses.server, map_id, now)
+				}
+				sent[id] = ClientSession{
+					...ses
+					area_key: key
+					area_rev: h.area_rev
+					area_at:  now
+				}
+			}
+		}
+		for id, ses in sent {
+			h.sessions[id] = ses
+		}
+		h.mu.unlock()
+		for o in out {
+			h.send(o)
+		}
 	}
 }
 

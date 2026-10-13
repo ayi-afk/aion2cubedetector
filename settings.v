@@ -48,6 +48,18 @@ mut:
 	overlay_xyz_alpha int    = 60            // % opacity of the X / Y / Z line
 	xyz_order         string = 'XYZ'         // axis order of the X / Y / Z line
 	overlay_history   bool
+	// Second overlay, over the game's large see-through map (overlay2.v):
+	// world units across it, opacity (%), position as fractions of the screen
+	// (width 0 = the default spot) and what it shows from the backend.
+	overlay2         bool
+	overlay2_zoom    int = default_overlay2_zoom
+	overlay2_opacity int = 100
+	overlay2_x       f64
+	overlay2_y       f64
+	overlay2_w       f64
+	overlay2_h       f64
+	overlay2_history bool = true
+	overlay2_players bool = true
 	// The character last seen logging in (name and game server id), for the
 	// backend; the game only says it when the character enters a zone.
 	character        string
@@ -105,6 +117,12 @@ fn load_settings() Settings {
 	}
 	if s.overlay_opacity !in overlay_opacities {
 		s.overlay_opacity = 100
+	}
+	if s.overlay2_zoom < overlay2_zoom_min || s.overlay2_zoom > overlay2_zoom_max {
+		s.overlay2_zoom = default_overlay2_zoom
+	}
+	if s.overlay2_opacity !in overlay_opacities {
+		s.overlay2_opacity = 100
 	}
 	s.overlay_ring_size = clamp(s.overlay_ring_size, 1, ring_size_max)
 	s.overlay_xyz_alpha = clamp(s.overlay_xyz_alpha, 10, 100)

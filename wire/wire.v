@@ -27,10 +27,13 @@ pub const t_taken = 'taken' // a player opened it (mine = this client's characte
 pub const t_gone = 'gone' // it was destroyed (collected or expired), not merely out of view
 pub const t_ping = 'ping' // keeps the connection alive
 pub const t_near = 'near' // answer to t_nearby: what is in view, nearest first
+pub const t_watch = 'watch' // wants (or no longer wants) to be told what is around: t_spots, t_people
 // Message types, server -> client.
 pub const t_kinds = 'kinds' // the templates the server wants reports for, with their names
 pub const t_error = 'error' // msg says why; the server closes the connection
 pub const t_nearby = 'nearby' // the admin wants to see what is around this client (msg = request id)
+pub const t_spots = 'spots' // for a watching client: the tracked places of its map, as they are on its game server
+pub const t_people = 'people' // for a watching client: the other players on its game server and map
 
 // A t_near answer lists at most this many things.
 pub const max_near_items = 60
@@ -66,6 +69,7 @@ pub mut:
 	id      u64    // entity id on the game server
 	age     f64 = -1 // seen: seconds since the game server created it, -1 unknown
 	mine    bool       // taken: opened by this client's character
+	watch   bool       // watch: send t_spots / t_people (the second map overlay is on)
 	items   []NearItem // near: what is in view (key = the request id)
 }
 
@@ -78,12 +82,39 @@ pub mut:
 	group string
 }
 
+// AreaSpot is one tracked place on the client's map.
+pub struct AreaSpot {
+pub mut:
+	cat      string
+	tpl      u32
+	x        f64
+	y        f64
+	z        f64
+	present  bool // something is there now, on the client's game server
+	expected i64  // when the next one should spawn there (unix seconds), 0 unknown
+	spawns   int  // how often something was seen there
+	color    u32  // 0xRRGGBB of the kind's group
+}
+
+// AreaPerson is another player on the client's game server and map.
+pub struct AreaPerson {
+pub mut:
+	name string
+	x    f64
+	y    f64
+	z    f64
+}
+
 // ServerMsg is every message the server sends to a client.
 pub struct ServerMsg {
 pub mut:
-	t     string
-	kinds []KindInfo
-	msg   string
+	t      string
+	kinds  []KindInfo
+	msg    string
+	now    i64 // spots, people: the server's clock (unix seconds)
+	map    u32 // spots: the map they are on
+	spots  []AreaSpot
+	people []AreaPerson
 }
 
 // kind_key identifies a template: the same number can be an object and an NPC.
@@ -102,6 +133,7 @@ pub fn kind_key(cat string, tpl u32) string {
 //   taken,<server>,<map>,<o|n>,<template>,<entity>,<x>,<y>,<z>,<mine 0|1>
 //   gone,<server>,<map>,<o|n>,<template>,<entity>,<x>,<y>,<z>
 //   ping
+//   watch,<0|1>
 //   near,<request id>          then one line per thing in view:
 //   <o|n>,<template>,<entity>,<x>,<y>,<z>,<distance>
 //
@@ -111,6 +143,10 @@ pub fn kind_key(cat string, tpl u32) string {
 //   <o|n>,<template>,<group>,<name>
 //   error,<text>
 //   nearby,<request id>
+//   spots,<now>,<map>          then one line per tracked place of that map:
+//   <o|n>,<template>,<x>,<y>,<z>,<present 0|1>,<expected>,<spawns>,<color rrggbb>
+//   people,<now>               then one line per other player:
+//   <x>,<y>,<z>,<name>
 //
 // The last field of a line (key, name, text) may itself contain commas.
 
@@ -144,6 +180,9 @@ pub fn (m ClientMsg) encode() string {
 		}
 		t_gone {
 			'${t_gone},${m.server},${m.map},${cat_code(m.cat)},${m.tpl},${m.id},${m.x:.1f},${m.y:.1f},${m.z:.1f}'
+		}
+		t_watch {
+			'${t_watch},${int(m.watch)}'
 		}
 		t_near {
 			mut lines := ['${t_near},${one_line(m.key)}']
@@ -199,6 +238,15 @@ pub fn decode_client(text string) ?ClientMsg {
 				key:     f[3]
 			}
 		}
+		t_watch {
+			if f.len != 2 {
+				return none
+			}
+			return ClientMsg{
+				t:     t_watch
+				watch: f[1] == '1'
+			}
+		}
 		t_me {
 			if f.len != 7 {
 				return none
@@ -243,6 +291,20 @@ pub fn decode_client(text string) ?ClientMsg {
 
 // encode writes the message in the text format.
 pub fn (m ServerMsg) encode() string {
+	if m.t == t_spots {
+		mut lines := ['${t_spots},${m.now},${m.map}']
+		for s in m.spots {
+			lines << '${cat_code(s.cat)},${s.tpl},${s.x:.0f},${s.y:.0f},${s.z:.0f},${int(s.present)},${s.expected},${s.spawns},${s.color:06x}'
+		}
+		return lines.join('\n')
+	}
+	if m.t == t_people {
+		mut lines := ['${t_people},${m.now}']
+		for p in m.people {
+			lines << '${p.x:.0f},${p.y:.0f},${p.z:.0f},${one_line(p.name)}'
+		}
+		return lines.join('\n')
+	}
 	if m.t != t_kinds {
 		return '${m.t},${one_line(m.msg)}'
 	}
@@ -256,6 +318,35 @@ pub fn (m ServerMsg) encode() string {
 // decode_server reads a server message; none when it is not one.
 pub fn decode_server(text string) ?ServerMsg {
 	lines := text.split('\n')
+	head := lines[0].split(',')
+	if head[0] == t_spots && head.len == 3 {
+		mut out := ServerMsg{
+			t:   t_spots
+			now: head[1].i64()
+			map: head[2].u32()
+		}
+		for line in lines[1..] {
+			f := line.split(',')
+			if f.len == 9 {
+				out.spots << AreaSpot{cat_name(f[0]), f[1].u32(), f[2].f64(), f[3].f64(), f[4].f64(), f[5] == '1', f[6].i64(), f[7].int(), u32(f[8].parse_uint(16,
+					32) or { 0 })}
+			}
+		}
+		return out
+	}
+	if head[0] == t_people && head.len == 2 {
+		mut out := ServerMsg{
+			t:   t_people
+			now: head[1].i64()
+		}
+		for line in lines[1..] {
+			f := line.split_nth(',', 4)
+			if f.len == 4 {
+				out.people << AreaPerson{f[3], f[0].f64(), f[1].f64(), f[2].f64()}
+			}
+		}
+		return out
+	}
 	if lines[0] != t_kinds {
 		kind, msg := text.split_once(',') or { return none }
 		return ServerMsg{

@@ -103,6 +103,7 @@ fn main() {
 		exit(1)
 	}
 	spawn hub.people_loop()
+	spawn hub.area_loop()
 	spawn hub.servers_loop()
 	spawn hub.flush_loop()
 	spawn hub.profile_loop()

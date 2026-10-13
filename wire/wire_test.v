@@ -237,3 +237,53 @@ fn test_near_items_in_the_text_format() {
 	assert ask.encode() == 'nearby,r7'
 	assert (decode_server('nearby,r7') or { panic('nearby') }) == ask
 }
+
+fn test_the_area_around_a_client_in_the_text_format() {
+	watch := ClientMsg{
+		t:     t_watch
+		watch: true
+	}
+	assert watch.encode() == 'watch,1'
+	back := decode_client(watch.encode()) or { panic('watch') }
+	assert back.t == t_watch && back.watch
+	off := decode_client('watch,0') or { panic('watch off') }
+	assert !off.watch
+	assert decode_client('watch') == none
+
+	spots := ServerMsg{
+		t:     t_spots
+		now:   1760000000
+		map:   20
+		spots: [
+			AreaSpot{category_object, 1301199, 53449.4, -54074.2, 20402.0, true, 0, 7, 0xf5a623},
+			AreaSpot{category_npc, 2400801, -12.0, 34.0, 5.0, false, 1760000600, 1, 0x00ff80},
+		]
+	}
+	text := spots.encode()
+	assert text == 'spots,1760000000,20\no,1301199,53449,-54074,20402,1,0,7,f5a623\nn,2400801,-12,34,5,0,1760000600,1,00ff80'
+	got := decode_server(text) or { panic('spots') }
+	assert got.t == t_spots && got.now == 1760000000 && got.map == 20 && got.spots.len == 2
+	assert got.spots[0].present && got.spots[0].tpl == 1301199 && got.spots[0].color == 0xf5a623
+	assert got.spots[0].x == 53449 && got.spots[0].y == -54074 && got.spots[0].spawns == 7
+	assert !got.spots[1].present && got.spots[1].expected == 1760000600
+		&& got.spots[1].cat == category_npc
+	empty := decode_server('spots,5,1110') or { panic('no spots') }
+	assert empty.t == t_spots && empty.spots.len == 0 && empty.map == 1110
+
+	people := ServerMsg{
+		t:      t_people
+		now:    1760000001
+		people: [AreaPerson{'Ann', 10.4, -20.6, 30.0}, AreaPerson{'With, comma', 1, 2, 3}]
+	}
+	ptext := people.encode()
+	assert ptext == 'people,1760000001\n10,-21,30,Ann\n1,2,3,With, comma'
+	pgot := decode_server(ptext) or { panic('people') }
+	assert pgot.t == t_people && pgot.people.len == 2
+	assert pgot.people[0].name == 'Ann' && pgot.people[0].y == -21
+	assert pgot.people[1].name == 'With, comma' && pgot.people[1].z == 3
+	nobody := decode_server('people,7') or { panic('nobody') }
+	assert nobody.t == t_people && nobody.people.len == 0
+	// the older messages are read as before
+	err := decode_server('error,spots, people and more') or { panic('error') }
+	assert err.t == t_error && err.msg == 'spots, people and more'
+}

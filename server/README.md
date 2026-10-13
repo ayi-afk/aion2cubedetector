@@ -236,7 +236,12 @@ was not made by a Cube Watch, but who takes the program apart will find it.
 (Change the `mix_...` numbers and the first number in `seal.v` to have a
 key of your own; client and backend must then be built from the same
 source. A Cube Watch from before the encryption is told to update.) The
-`--client-key` travels inside the sealed hello. Position updates go to the browsers in batches of plain lines twice a second,
+`--client-key` travels inside the sealed hello. A client whose second map overlay is on asks for what is around it
+(`watch,1`): it then gets the other players on its game server and map every
+2 seconds (`people`) and the tracked places of that map with what is there
+on its game server (`spots`) when it comes to the map and when something
+changed (at most every 5 seconds). Older clients never ask and get neither.
+Position updates go to the browsers in batches of plain lines twice a second,
 because that is the busy path. Measured on a desktop PC with the optimized
 Windows build: 600 clients each reporting a position every second (far more
 than real clients do - they report on change, at most once a second, and a
