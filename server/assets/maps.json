@@ -1,0 +1,22 @@
+{
+  "_comment": "Built-in maps of the backend. A pixel of the image is px = ox + sx * world_x, py = oy + sy * world_y (image north is world -Y, east is world +X). map_ids are the ids the game server sends when it places a character on the map; they all share this image, and the first one is the id spots are stored under. The map marked default also takes reports whose map id is not known. To add a map: put its image in this folder, add an entry here and one line in map_image() in maps.v, then rebuild. Every other map is the admin's: a name and its map ids, added in the admin panel and drawn as a grid.",
+  "maps": [
+    {
+      "key": "asmodians",
+      "name": "Asmodian lands",
+      "image": "map_asmodians.jpg",
+      "width": 4428,
+      "height": 4652,
+      "map_ids": [1110],
+      "default": true,
+      "sx": 0.0083032,
+      "sy": 0.0083032,
+      "ox": 2370.8,
+      "oy": 2223.9,
+      "calibration": [
+        {"place": "Neglected Crematorium (teleport statue)", "world_x": -169762, "world_y": -95786, "pixel_x": 962, "pixel_y": 1426},
+        {"place": "Steel Hammer Mercenary camp (south edge of the round platform)", "world_x": 164993, "world_y": 5247, "pixel_x": 3740, "pixel_y": 2270}
+      ]
+    }
+  ]
+}

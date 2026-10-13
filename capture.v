@@ -263,6 +263,7 @@ mut:
 	posted       bool
 	stop         bool
 	reset_player bool
+	rearm_player bool
 	running      bool
 	recent       proto.RecentFrames // game server frames of the last minute
 }
@@ -342,14 +343,28 @@ fn (mut c Capture) request_player_reset() {
 	c.mu.unlock()
 }
 
-// poll_flags returns (stop requested, player reset requested) and clears
-// the one-shot reset flag.
-fn (mut c Capture) poll_flags() (bool, bool) {
+// request_player_rearm lets another entity take over as the local player
+// without forgetting the current one (see proto.Decoder.rearm_player).
+fn (mut c Capture) request_player_rearm() {
 	c.mu.lock()
-	stop, reset := c.stop, c.reset_player
-	c.reset_player = false
+	c.rearm_player = true
 	c.mu.unlock()
-	return stop, reset
+}
+
+// poll_flags returns whether a stop was requested and applies the one-shot
+// player reset / re-arm requests to the decoder.
+fn (mut c Capture) poll_flags(mut dec proto.Decoder) bool {
+	c.mu.lock()
+	stop, reset, rearm := c.stop, c.reset_player, c.rearm_player
+	c.reset_player = false
+	c.rearm_player = false
+	c.mu.unlock()
+	if reset {
+		dec.reset_player()
+	} else if rearm {
+		dec.rearm_player()
+	}
+	return stop
 }
 
 fn (mut c Capture) finish(reason string) {
@@ -404,18 +419,12 @@ fn capture_worker(mut c Capture, api Npcap, device Device, port int) {
 		kind: .status
 		text: 'Capturing on ${device.label()}. Waiting for game traffic on port ${port}...'
 	})
-	mut sink := PacketSink{
-		port: port
-	}
+	mut sink := new_sink(port)
 	mut hdr_ptr := unsafe { nil }
 	mut data_ptr := unsafe { nil }
 	for {
-		stop, reset := c.poll_flags()
-		if stop {
+		if c.poll_flags(mut sink.dec) {
 			break
-		}
-		if reset {
-			sink.dec.reset_player()
 		}
 		rc := api.next_ex(handle, voidptr(&hdr_ptr), voidptr(&data_ptr))
 		if rc == 0 {
@@ -446,6 +455,15 @@ mut:
 	streams map[string]&proto.Stream
 }
 
+fn new_sink(port int) PacketSink {
+	return PacketSink{
+		port: port
+		dec:  proto.Decoder{
+			entities: true // for the Objects tab
+		}
+	}
+}
+
 fn (mut sink PacketSink) handle(mut c Capture, frame []u8, linktype int, timestamp f64) {
 	pkt := proto.game_packet(frame, linktype, sink.port) or { return }
 	if pkt.payload.len == 0 {
@@ -461,6 +479,9 @@ fn (mut sink PacketSink) handle(mut c Capture, frame []u8, linktype int, timesta
 	mut stream := sink.streams[key] or {
 		s := &proto.Stream{}
 		sink.streams[key] = s
+		// Another server (zone or instance change) gives the character a
+		// new entity id.
+		sink.dec.new_connection()
 		c.push(WorkerEvent{
 			kind: .server
 			text: '${pkt.server}:${sink.port} (client port ${pkt.client_port})'
@@ -508,18 +529,12 @@ fn replay_worker(mut c Capture, path string, port int) {
 		kind: .status
 		text: 'Replaying ${os.file_name(path)} (${frames.len} frames) in real time...'
 	})
-	mut sink := PacketSink{
-		port: port
-	}
+	mut sink := new_sink(port)
 	start := now_seconds()
 	first := frames[0].timestamp
 	for f in frames {
-		stop, reset := c.poll_flags()
-		if stop {
+		if c.poll_flags(mut sink.dec) {
 			break
-		}
-		if reset {
-			sink.dec.reset_player()
 		}
 		due := start + (f.timestamp - first)
 		for now_seconds() < due {

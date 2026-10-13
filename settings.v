@@ -3,6 +3,7 @@ module main
 import json
 import os
 import proto
+import rand
 
 enum SoundMode {
 	windows
@@ -47,6 +48,13 @@ mut:
 	overlay_xyz_alpha int    = 60            // % opacity of the X / Y / Z line
 	xyz_order         string = 'XYZ'         // axis order of the X / Y / Z line
 	overlay_history   bool
+	// The character last seen logging in (name and game server id), for the
+	// backend; the game only says it when the character enters a zone.
+	character        string
+	character_server int
+	// Random id made on the first run. The backend uses it to tell that
+	// several characters are played from the same installation.
+	install_id string
 	// Cubes older than this many minutes leave the list (0 = never).
 	auto_clear_minutes int = 20
 	// Compact view: only position and compass; it keeps its own window size.
@@ -108,6 +116,11 @@ fn load_settings() Settings {
 		s.compass_range = default_compass_range
 	}
 	return s
+}
+
+// new_install_id makes the id of an installation: 16 random hex digits.
+fn new_install_id() string {
+	return rand.hex(16)
 }
 
 fn save_settings(s Settings) ! {

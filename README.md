@@ -36,10 +36,18 @@ distance and a small up/down triangle with the height difference. A `!`
 means another player is opening that cube. Arrows fade when your last known
 position is older than 10 s.
 
-Entering an instance gives your character a new entity id. When your
-position is older than 15 s, Cube Watch detects your character again
-automatically (every 15 s until a fresh position arrives) and keeps the
-last position on screen meanwhile; "Re-detect player" does it right away.
+Changing zone or entering an instance gives your character a new entity
+id. Cube Watch picks it up as soon as the game connects to the new zone's
+server. As a fallback, when your position is older than 15 s it also lets
+another character take over (it keeps following yours until one shows up)
+and keeps the last position on screen meanwhile; "Re-detect player" forgets
+your character right away.
+
+The game server does not send your position while you simply walk or run.
+It arrives when something happens to your character: landing, a jump or
+glide, entering a zone, any effect put on you (your own buffs and dash
+skills, effects from other players and monsters) and every skill a monster
+aims at you. Between those the last known position is shown.
 
 Position freshness (square next to your X / Y on the compass, ring around
 your arrow on the map overlay): green = updated in the last 5 s, yellow =
@@ -109,7 +117,7 @@ in borderless / windowed mode - nothing can draw over exclusive fullscreen.
 All overlay options (on/off, Game UI, zoom, opacity, position) are saved
 with the other settings and restored on the next start.
 
-Markers move when the game reports your position (on stop / landing).
+Markers move when the game reports your position (see "Compass").
 
 ### Overlay extras (last row)
 
@@ -140,10 +148,112 @@ destroyed, cleared or when the app exits. Columns:
 | `x`, `y`, `z` | position |
 | `taken_by_us` | 1 = we opened it, 0 = another player, empty = unknown (vanished / cleared) |
 | `distance` | flat distance at first sight, to re-check `spawned_in_range` later |
+| `map` | id of the map you were on, empty if unknown (see "Objects tab"); missing in files of older versions |
 
 All `data\cubes_*.csv` files are loaded at start. Tick "History" (next to
 "Compass range") to see them instead of the cube list. Replays do not write
 history.
+
+## Objects tab
+
+The "Cubes" / "Objects" buttons above the list switch what it shows.
+"Objects" lists every object and NPC the game server reports in view
+(cubes included), nearest first:
+
+| Column | Meaning |
+|--------|---------|
+| Name | the name you gave this ID ("Cube" is built in); empty until named |
+| Type | Object (cubes, gatherables, chests, ...) or NPC (monsters and other NPCs) |
+| ID | the template: what kind of thing it is - the same for every one of its sort |
+| Entity | this one's id on the current server (changes every time) |
+| Distance / Height | flat distance and height relative to you |
+| X, Y, Z | position; NPCs are followed while they walk |
+| Info | NPC: HP when it came into view; object: how long ago the server created it |
+| Flags | flag bytes of its spawn message whose meaning is not known yet |
+| Seen | when it came into view |
+
+Double-click a row (or select it and press F2), type a name and press
+Enter: the name belongs to the ID, so every row of that sort gets it, now
+and in later sessions. An empty name removes it. To find out what an ID is,
+stand next to the thing in the game - it is the first row.
+
+"Clear list" and "Copy XYZ" work on the tab that is shown. The list empties
+by itself when the game connects to another server (zone / instance
+change). Other players are not listed.
+
+Two files next to `cube_watch.exe` keep what was learned:
+
+- `data\names.csv` - `type,template,name`: your names. You can edit it (or
+  share it) while Cube Watch is closed.
+- `data\db.csv` - where every ID was seen:
+  `map,type,template,name,x,y,z,flags,max_hp,first_seen,last_seen,times_seen`.
+  One row per place: on the same map, objects within 200 units and NPCs
+  within 2,000 units of an earlier sighting count as the same place
+  (`times_seen` goes up).
+  Written every 30 s and on exit; the name column is filled in from
+  `names.csv`. Keep it closed in Excel while Cube Watch runs, or it cannot
+  be written. Replays do not add places.
+
+### Map id
+
+The map id is the number the server sends when it places your character
+on a map (zone or instance change); it is shown after your position
+("| map 1110") and saved with every row of `db.csv` and of the cube
+history. It stays empty until the first such change after Cube Watch was
+started, because the server does not repeat it.
+
+Nothing from another map is laid over the one you are on:
+
+- a cube left behind on another map turns grey with the state "other map"
+  and loses its compass arrow and overlay marker (it comes back when you
+  return and the server shows it again);
+- "History on map" draws only the cubes recorded on the current map.
+
+Only what is known to be elsewhere is hidden: history rows without a map
+id (written by older versions, or before the first map change of a
+session) are still drawn everywhere, and so is everything while the
+current map is not known yet.
+
+## Backend
+
+Cube Watch can report to a backend (`server/`, see `server/README.md`) that
+shows a live map in the browser: where the connected characters are, where
+cubes (and other things its admin named) are right now, who took them last
+and when the next one is expected.
+
+- The backend's address is fixed in the exe at build time: `REMOTE_ADDR=`
+  in `.env` (and `REMOTE_KEY=` when the backend has a `--client-key`); see
+  `.env.example`. `host:port` is the backend itself; a host name alone (or
+  `wss://host`) is a backend behind HTTPS - a reverse proxy like nginx -
+  and is reached with TLS on port 443. Without `REMOTE_ADDR` Cube Watch
+  connects nowhere.
+- The connection is made in the background. When the backend cannot be
+  reached Cube Watch simply works as before and tries again every 20 - 30
+  seconds. The player line shows `hub online` / `hub offline`, and the
+  status line says once why it is offline.
+- With TLS the proxy's certificate is not checked against a list of
+  authorities (Cube Watch carries none); the messages inside are sealed
+  with the key only Cube Watch and the backend have.
+- It sends: a random id of this installation (made on the first run, kept
+  in the settings; the backend uses it to show that several characters
+  belong to one player), your character's name and game server (learned
+  when the character enters a zone, remembered in the settings - until then
+  you are on the map as "Unknown-xxxx" and the player line says so), your
+  last known position (when it changes, at most once a second, and every 10
+  seconds),
+  and for the kinds the backend tracks - when one comes into view (with the
+  time the game server created it), when a player opens it (and whether it
+  was you) and when it is destroyed. Nothing else leaves the PC; in
+  particular not the account string of the login message.
+- Everything Cube Watch and the backend say to each other is encrypted
+  (ChaCha20-Poly1305 with a key both programs carry, see `wire/seal.v`),
+  so client and backend have to be built from the same source.
+- The backend sends the kinds it tracks with their names; they are shown in
+  the Objects tab for IDs you have not named yourself. Its admin can also
+  ask what is around you: Cube Watch then answers with the objects and NPCs
+  in view (type, ID, position, distance), so that new things can be named
+  there.
+- Replays are not reported, unless started with `--replay-remote`.
 
 ## Save packets
 
@@ -193,17 +303,40 @@ arriving next to the object, or walk out of range and back.
 
 Server -> client messages are plain (LZ4 bundles aside); client -> server
 messages are encrypted, so the player's own position comes only from the
-server, and only occasionally (on stop, landing, corrections).
+server, and only when something happens to the character (effects, skills
+aimed at it, landing) - never for plain walking.
+
+A message is a size varint followed by `size - 4` bytes (2-byte opcode and
+data), whatever the width of the varint. A bundle is a message with opcode
+`ff ff`: decoded size u32, then an LZ4 block of more messages.
 
 | Opcode | Meaning | Layout after opcode |
 |--------|---------|---------------------|
+| `15 36` | first message of a game server connection | 2 bytes, two clock values, 3 bytes, account string, game server id as a string (e.g. `2304`), ... |
+| `21 36` | own character is placed on a map (once per zone / instance change) | u32, map id u32, u32, u32, x y z, heading f32, ... |
+| `33 36` | own character enters a zone | id, three small numbers, name (length byte first), ... (stats) |
 | `34 36` | object spawn (cube template `0x0013DACF`) | id, 2 bytes, template u32, x y z |
 | `35 36` | object removed (`04` = destroyed, `01` = out of view) | id, reason |
 | `38 36` | player starts opening object | object id, player id |
 | `3a 36` | player finished opening object | object id, player id, ... |
 | `1e 56` | loot from an opened object | ..., object id u32, object xyz, drop xyz |
-| `2a 38` / `2b 38` | local player position (self-id discriminator) | id, ..., id, `01 00`/`01 02`, x y z |
+| `2a 38` | status effect put on a target (buff, debuff, landing, dash, ...) | caster id, 1 byte, mask, effect number (varint), effect id u32, duration u32, u32, time u64, target id, level, skill u32 if mask & 2, flag, target x y z |
+| `2b 38` | status effect refreshed | same without the byte after the caster id; x y z is the target's current position only with flag `02` |
+| `02 38` / `09 38` | skill used on a target / cast started | caster id, 1 byte, skill u32, sequence, flag, target id, heading f32, target x y z if flag is `02`, ... |
 | `1a 37` | entity position (used for the local player id) | id, 2 bytes, x y z |
+| `1b 37` / `1c 37` | entity starts moving / keeps moving (about once a second) | id, 1 byte, x y z, ... |
+| `41 36` | NPC spawn | id, 3 flag bytes, template u32, 2 flag bytes, x y z, heading f32, 2 bytes, `01`, HP varint, max HP varint, ... |
+| `42 36` | NPC removed (`01` = out of view, `03` seen when one died) | id, 1 byte, reason |
+| `00 36` | server clock, 20 times a second | ms u64 |
+
+After the position an object spawn (`34 36`) continues with 4 zero bytes,
+heading f32, 3 state bytes and the server clock value (ms u64) of when the
+object was created.
+
+The local player is the entity that puts an effect without a skill on
+itself (monsters' own effects come from a skill) or the one named by
+`33 36`; its position is then taken from every `2a 38` / `2b 38` /
+`02 38` / `09 38` that has it as the target.
 
 ## Build
 
@@ -222,6 +355,9 @@ or manually:
 
 ```bat
 v test proto
+v test objdb
+v test wire
+v run tools\envgen build_remote.v
 v run tools\stamp build_stamp.v
 v -d no_backtrace -subsystem windows -o cube_watch.exe .
 ```
@@ -263,6 +399,16 @@ If a source moves to a different root CA, add that root (PEM) to
 - `proto/` - TCP reassembly, frame / LZ4 bundle parsing, cube and player
   decoding, pcap reading / writing and the last-minute frame buffer (unit
   tested, no Windows dependencies).
+- `objdb/` - template names and seen places behind the Objects tab
+  (`names.csv` / `db.csv`; unit tested, no Windows dependencies).
+- `objects.v` - the Objects tab.
+- `wire/` - the messages Cube Watch and the backend exchange and the small
+  websocket client codec (unit tested).
+- `remote/` - the background connection to the backend; `backend.v` - what
+  the app reports through it.
+- `server/` - the backend (its own executable, see `server/README.md`).
+- `tools/envgen` - writes `build_remote.v` (backend address) from `.env`;
+  `tools/fakeclient` - plays a client against a backend.
 - `capture.v` - Npcap loading, adapter selection, capture thread.
 - `app.v`, `icon.v`, `win32.v` - Win32 GUI and tray.
 - `sound.v`, `settings.v` - alerts and persisted preferences.

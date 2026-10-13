@@ -81,6 +81,7 @@ fn replay(file string, opts Options) ! {
 		mut stream := streams[key] or {
 			s := &proto.Stream{}
 			streams[key] = s
+			dec.new_connection()
 			println('[${stamp(f.timestamp)}] server flow ${key}')
 			s
 		}
@@ -89,6 +90,9 @@ fn replay(file string, opts Options) ! {
 			match ev.kind {
 				.player_detected {
 					println('[${stamp(ev.timestamp)}] player entity ${ev.id} detected')
+				}
+				.player_lost {
+					println('[${stamp(ev.timestamp)}] entity ${ev.id} is not the player after all')
 				}
 				.player {
 					player = ev
@@ -122,6 +126,16 @@ fn replay(file string, opts Options) ! {
 				.cube_removed {
 					println('[${stamp(ev.timestamp)}] cube ${ev.id}: removed (reason 0x${ev.reason:02x})')
 				}
+				.map_entered {
+					println('[${stamp(ev.timestamp)}] entered map ${ev.id} at (${ev.pos.x:.1f}, ${ev.pos.y:.1f}, ${ev.pos.z:.1f})')
+				}
+				.game_server {
+					println('[${stamp(ev.timestamp)}] game server ${ev.id}')
+				}
+				.player_name {
+					println('[${stamp(ev.timestamp)}] character "${ev.name}" (entity ${ev.id})')
+				}
+				.entity, .entity_moved, .entity_removed, .entity_opened {}
 			}
 		}
 	}

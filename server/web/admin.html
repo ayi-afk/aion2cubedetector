@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cube Watch admin</title>
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0b0f17; --panel: #10161f; --panel-2: #151c27; --line: #1f2a38; --line-2: #2a3647;
+  --text: #e6ecf5; --text-2: #a7b3c6; --muted: #6c7a90; --accent: #f5a623;
+  --good: #3ddc84; --bad: #e66767; --warn: #fab219;
+  --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --sans: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+a { color: var(--accent); }
+button, input, select { font: inherit; color: inherit; }
+.wrap { max-width: 1500px; margin: 0 auto; padding: 18px 20px 60px; }
+header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+header h1 { margin: 0; font-size: 20px; }
+header .tag { font: 600 11px var(--mono); color: var(--accent); border: 1px solid #4a3412; background: #1d1509; border-radius: 6px; padding: 2px 8px; }
+.spacer { flex: 1; }
+.btn { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px; white-space: nowrap; text-decoration: none; display: inline-block; }
+.btn:hover { border-color: #3a4d68; background: #1a2331; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+.btn.danger { color: #ffb3b3; border-color: #4a2020; background: #1d1010; }
+.btn.small { padding: 4px 9px; font-size: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 18px; }
+.card h2 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 10px; }
+.card h2 .n { font: 600 12px var(--mono); color: var(--text-2); }
+.muted { color: var(--muted); }
+.help { color: var(--muted); font-size: 12.5px; margin: 10px 0 0; max-width: 1100px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.stat.wide { grid-column: 1 / -1; }
+.stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+.stat .v { font: 600 16px var(--mono); margin-top: 2px; word-break: break-all; }
+.stat .v.small { font-size: 12px; font-weight: 400; color: var(--text-2); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; padding: 8px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 6px 8px; border-bottom: 1px solid #161e2a; vertical-align: middle; }
+tr:hover td { background: #121a25; }
+.num { text-align: right; font-family: var(--mono); }
+td input[type=text], td input[type=number], td select, .tools input, .tools select, .calc input {
+  background: var(--bg); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 8px; width: 100%; min-width: 60px;
+}
+td input[type=color] { width: 38px; height: 28px; padding: 0; border: 1px solid var(--line-2); border-radius: 6px; background: none; }
+td.act { white-space: nowrap; text-align: right; width: 1%; }
+.tablewrap { overflow-x: auto; }
+.tools { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+.tools select, .tools input { width: auto; min-width: 180px; }
+.ok { color: var(--good); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 6px; }
+.calc { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)) auto; gap: 8px; align-items: end; margin-top: 12px; max-width: 900px; }
+.calc label { font-size: 11px; color: var(--muted); display: grid; gap: 3px; }
+#toast { position: fixed; right: 18px; bottom: 18px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.5); z-index: 30; }
+#toast.bad { border-color: #6a2a2a; color: #ffb3b3; }
+#login { max-width: 340px; margin: 14vh auto; display: grid; gap: 12px; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.tabs button { background: none; border: 1px solid var(--line-2); color: var(--text-2); padding: 8px 16px; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 13px; }
+.tabs button:hover { border-color: #3a4d68; color: var(--text); }
+.tabs button.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+.tabs .n { opacity: .75; font-weight: 400; margin-left: 4px; }
+#panel .card[data-tab] { display: none; }
+#panel[data-tab=players] .card[data-tab=players], #panel[data-tab=things] .card[data-tab=things],
+#panel[data-tab=maps] .card[data-tab=maps], #panel[data-tab=server] .card[data-tab=server] { display: block; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: 1px; }
+tr.first td { border-top: 1px solid var(--line-2); }
+details > summary { cursor: pointer; color: var(--text-2); margin: 12px 0 8px; font-size: 13px; }
+#login input { background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Cube Watch backend</h1><span class="tag">ADMIN</span>
+    <div class="spacer"></div>
+    <a class="btn" href="/">&larr; Map</a>
+    <button class="btn" id="reload">Refresh</button>
+    <button class="btn" id="logout" hidden>Log out</button>
+  </header>
+
+  <form class="card" id="login" hidden>
+    <h2>Admin password</h2>
+    <input id="pw" type="password" autocomplete="current-password" autofocus>
+    <div class="bad" id="loginErr"></div>
+    <button class="btn primary" type="submit">Log in</button>
+  </form>
+
+  <div id="panel" data-tab="players" hidden>
+    <div class="tabs" id="tabs">
+      <button data-tab="players">Players <span class="n" id="tabPlayers"></span></button>
+      <button data-tab="things">Tracked things <span class="n" id="tabThings"></span></button>
+      <button data-tab="maps">Maps <span class="n" id="tabMaps"></span></button>
+      <button data-tab="server">Server &amp; database</button>
+    </div>
+
+    <div class="card" data-tab="server"><h2>Status</h2><div class="stats" id="stats"></div></div>
+
+    <div class="card" data-tab="things">
+      <h2>Groups <span class="n" id="groupCount"></span></h2>
+      <div class="tablewrap"><table><thead><tr><th>Name</th><th>Color</th><th>Order</th><th>Kinds</th><th></th></tr></thead><tbody id="groups"></tbody></table></div>
+      <p class="help">A group is a filter on the map (e.g. Cubes, Gathering, Chests) and gives its kinds their color.</p>
+    </div>
+
+    <div class="card" data-tab="things">
+      <h2>Kinds - what clients report <span class="n" id="kindCount"></span></h2>
+      <div class="tablewrap"><table><thead><tr><th>Type</th><th>Template ID</th><th>Name</th><th>Group</th><th title="Minutes from taken to the next spawn; empty = estimate from what was observed">Respawn (min)</th><th>Report</th><th>Spots</th><th></th></tr></thead><tbody id="kinds"></tbody></table></div>
+      <p class="help">A kind is one template id (the "ID" column of the Objects tab in Cube Watch). Connected clients are told at once which kinds to report and what they are called. Leave "Respawn" empty to let the backend estimate it from the takes and spawns it sees. Deleting a kind deletes its spots and their history.</p>
+    </div>
+
+    <div class="card" data-tab="things">
+      <h2>Spots <span class="n" id="spotCount"></span></h2>
+      <div class="tools">
+        <select id="spotKind"></select>
+        <select id="spotServer"></select>
+        <input id="spotFind" type="text" placeholder="Find by label, id or coordinates">
+      </div>
+      <div class="tablewrap"><table><thead><tr><th>#</th><th>Kind</th><th>Map</th><th class="num">X</th><th class="num">Y</th><th class="num">Z</th><th>Now</th><th>Last taken</th><th class="num">Detected</th><th class="num">Taken</th><th class="num" title="Average time one stays before it is taken">Avg. pickup</th><th class="num">Respawn</th><th>Label</th><th>Hidden</th><th></th></tr></thead><tbody id="spots"></tbody></table></div>
+      <p class="help">A spot is a place where a kind was seen (positions within a metre are the same spot). A label shows on the map instead of the kind's name; a hidden spot stays in the database but is not drawn. Deleting a spot deletes its history - it comes back when a client sees something there again.</p>
+    </div>
+
+    <div class="card" data-tab="maps">
+      <h2>Maps <span class="n" id="mapCount"></span></h2>
+      <div class="tablewrap"><table><thead><tr><th>Map</th><th title="The ids the game gives this map, comma separated. Cube Watch shows the id in its player line: &quot;map 20&quot;">Map ids</th><th>Drawn on</th><th class="num">Spots</th><th class="num">Players now</th><th></th></tr></thead><tbody id="mapRows"></tbody></table></div>
+      <p class="help">"Asmodian lands" is built in (it has an image) and always there. Every other map is yours: a name and the map ids that belong to it, drawn on a grid - nothing from it is ever put on another map's image. A map id something was reported from and that has no name yet is listed as "not named" - type a name and press Enter. The quickest way is in "Clients" below: type the map's name next to a character that is there.</p>
+      <details><summary>Calibration of the built-in map</summary>
+      <div class="tablewrap"><table><thead><tr><th>Map</th><th>Image</th><th>Scale X (px / unit)</th><th>Scale Y</th><th>Offset X (px)</th><th>Offset Y</th><th></th></tr></thead><tbody id="maps"></tbody></table></div>
+      <div class="calc">
+        <label>Point A: world X<input id="ax" type="text"></label><label>world Y<input id="ay" type="text"></label><label>pixel X<input id="apx" type="text"></label><label>pixel Y<input id="apy" type="text"></label><span></span>
+        <label>Point B: world X<input id="bx" type="text"></label><label>world Y<input id="by" type="text"></label><label>pixel X<input id="bpx" type="text"></label><label>pixel Y<input id="bpy" type="text"></label>
+        <button class="btn" id="calc" type="button">Compute into the first map</button>
+      </div>
+      <p class="help">Map images are compiled into the server (server/assets, see maps.json there). A pixel is <code>offset + scale &times; world coordinate</code>. To calibrate: note your X / Y in Cube Watch at two places far apart, find the same two places on the image (pixel position, e.g. in an image editor), enter both pairs above and press "Compute", then Save. Reports from any of the map ids are shown on this image.</p>
+      </details>
+    </div>
+
+    <div class="card" data-tab="maps">
+      <h2>Game servers <span class="n" id="serverCount"></span></h2>
+      <div class="tablewrap"><table><thead><tr><th>Id</th><th>Name</th><th>From</th><th class="num">Players now</th><th class="num">Spots with a state</th><th></th></tr></thead><tbody id="serverNames"></tbody></table></div>
+      <p class="help">The game servers something was reported from. Names come from the official list (compiled in, refreshed from the official site once a day). An id without a name there - the game uses ids of its own for shared zones like the Abyss - can be named here; an empty name takes your name away again. "Not known yet" is not an id: it is a client that has not learned its game server.</p>
+    </div>
+
+    <div class="card" data-tab="players">
+      <h2>Online now <span class="n" id="clientCount"></span></h2>
+      <div class="tablewrap"><table><thead><tr><th>Character</th><th title="The map id the game gave this client. Type the name of the map the character is on and press Enter: the id gets that name">Is on map</th><th title="The same for all characters played from one Cube Watch installation">Player</th><th>Game server</th><th>Class</th><th class="num">X</th><th class="num">Y</th><th>Connected</th><th>Last message</th><th></th></tr></thead><tbody id="clients"></tbody></table></div>
+      <datalist id="mapHints"></datalist>
+      <p class="help">"Is on map": the game only gives a map a number. When you know where a character is, type the map's name next to it (the known ones are suggested) and press Enter - the map id that client reports gets the name. A name that exists adds the id to that map (several ids can share a map); a new name makes a new map. A client that was started in the middle of a session learns its map id when the character changes zone.</p>
+      <div id="near" hidden>
+        <h2 style="margin-top:16px">What is around <span id="nearWho"></span> <span class="n" id="nearAge"></span></h2>
+        <div class="tablewrap"><table><thead><tr><th class="num">Distance</th><th>Type</th><th>Template ID</th><th class="num">X</th><th class="num">Y</th><th class="num">Z</th><th>Name</th><th>Group</th><th></th></tr></thead><tbody id="nearItems"></tbody></table></div>
+      </div>
+      <p class="help">"What is around" asks that client for everything it sees, nearest first - also things that are not tracked yet. Stand next to the thing in the game, press the button, type a name in the first row and "Track": it becomes a kind and all clients start reporting it.</p>
+    </div>
+
+    <div class="card" data-tab="players">
+      <h2>All characters <span class="n" id="charCount"></span></h2>
+      <div class="tools"><input id="charFind" type="text" placeholder="Find a character or a player tag"></div>
+      <div class="tablewrap"><table><thead><tr><th title="One Cube Watch installation: the characters below it were played from the same PC">Player</th><th>Character</th><th>Game server</th><th>Class</th><th>Last seen</th><th></th></tr></thead><tbody id="chars"></tbody></table></div>
+      <p class="help">Every character a Cube Watch ever reported with, online or not, grouped by installation (the random id each Cube Watch makes on its first run - only its first characters are shown). The player seen most recently is on top.</p>
+    </div>
+
+    <div class="card" data-tab="server">
+      <h2>Database - export / import</h2>
+      <a class="btn" href="/api/admin/export">&darr; Export database (.db)</a>
+      <button class="btn" id="importBtn">&uarr; Import &amp; merge database...</button>
+      <input type="file" id="importFile" accept=".db,application/octet-stream" hidden>
+      <button class="btn" id="historyBtn">&uarr; Import Cube Watch history (cubes_*.csv)...</button>
+      <input type="file" id="historyFile" accept=".csv,text/csv" multiple hidden>
+      <p class="help">Import merges another backend database into this one: groups are matched by name, kinds by (type, template id), spots by position (the same metre of the same map), history by (game server, spot, time, event) - the history of both databases interleaves chronologically and duplicates are skipped. Importing the same file twice changes nothing. Use export to move data (a consistent copy even while running).<br>
+      "Import Cube Watch history" takes the <code>data\cubes_*.csv</code> files Cube Watch wrote before there was a backend (select several at once): every cube in them becomes a sighting at its place, so all places known so far are on the map with how often a cube was detected there. Importing a file twice adds nothing.</p>
+    </div>
+  </div>
+</div>
+<div id="toast" hidden></div>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => Math.round(n).toLocaleString('en-US');
+let D = null, skew = 0;
+const now = () => Date.now() / 1000 + skew;
+function ago(t) {
+  if (!t) return '-';
+  const s = Math.max(0, now() - t);
+  if (s < 60) return Math.floor(s) + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+const span = s => s < 60 ? Math.round(s) + 's' : s < 3600 ? Math.round(s / 60) + 'm' : (s / 3600).toFixed(1) + 'h';
+function toast(text, bad) {
+  const t = $('toast');
+  t.textContent = text; t.className = bad ? 'bad' : ''; t.hidden = false;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.hidden = true, bad ? 6000 : 2500);
+}
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: 'POST', headers: { 'X-CW': '1' }, body: body instanceof Blob ? body : JSON.stringify(body) };
+  const r = await fetch('/api/admin/' + path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { showLogin(); throw new Error('login required'); }
+  if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
+  return data;
+}
+async function act(promise, done) {
+  try { await promise; if (done) toast(done); await load(true); } catch (e) { if (e.message !== 'login required') toast(e.message, true); }
+}
+function showLogin() { $('panel').hidden = true; $('login').hidden = false; $('pw').focus(); }
+
+// ---- rendering ---------------------------------------------------------------------------
+const kindKey = k => k.cat + ':' + k.tpl;
+// "Lumiel (2304)"; 0 = the client does not know its game server yet
+const serverName = id => { const s = (D.servers || []).find(x => x.id === id); return id === 0 ? 'not known yet' : s ? `${s.name} (${id})` : `Server ${id}`; };
+const groupOptions = sel => '<option value="0">(none)</option>' + D.groups.map(g => `<option value="${g.id}" ${g.id === sel ? 'selected' : ''}>${esc(g.name)}</option>`).join('');
+function render() {
+  const s = D.status;
+  skew = s.now - Date.now() / 1000;
+  const stat = (k, v, cls = '') => `<div class="stat ${cls}"><div class="k">${k}</div><div class="v ${cls.includes('wide') ? 'small' : ''}">${v}</div></div>`;
+  $('stats').innerHTML = stat('Clients connected', s.clients) + stat('Players on the map', s.people) + stat('Map viewers', s.viewers)
+    + stat('Spots', fmt(s.spots)) + stat('History events', fmt(s.events)) + stat('Reports since start', fmt(s.reports))
+    + stat('Profiles cached', s.profiles) + stat('Running for', span(s.now - s.started)) + stat('Database size', (s.db_size / 1024).toFixed(0) + ' KB')
+    + stat('Map password', s.password_set ? '<span class="ok">set</span>' : '<span class="warn">none - public</span>')
+    + stat('Client key', s.key_set ? '<span class="ok">set</span>' : '<span class="warn">none - any client</span>') + stat('Version', esc(s.version))
+    + stat('Database file', esc(s.db_path), 'wide');
+
+  const groups = [...D.groups].sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  $('groupCount').textContent = groups.length;
+  const groupRow = g => `<tr data-id="${g.id}"><td><input type="text" data-f="name" value="${esc(g.name)}" placeholder="New group"></td>
+    <td><input type="color" data-f="color" value="${esc(g.color)}"></td><td style="width:90px"><input type="number" data-f="sort" value="${g.sort}"></td>
+    <td class="num">${g.id ? D.kinds.filter(k => k.group === g.id).length : ''}</td>
+    <td class="act"><button class="btn small ${g.id ? '' : 'primary'}" data-a="save">${g.id ? 'Save' : 'Add'}</button>${g.id ? ' <button class="btn small danger" data-a="del">Delete</button>' : ''}</td></tr>`;
+  $('groups').innerHTML = groups.map(groupRow).join('') + groupRow({ id: 0, name: '', color: '#4f9cf9', sort: groups.length });
+
+  const kinds = [...D.kinds].sort((a, b) => a.name.localeCompare(b.name));
+  $('kindCount').textContent = kinds.length;
+  const kindRow = (k, isNew) => `<tr data-key="${isNew ? '' : kindKey(k)}">
+    <td style="width:110px">${isNew ? `<select data-f="cat"><option value="object">object</option><option value="npc">npc</option></select>` : esc(k.cat)}</td>
+    <td style="width:130px">${isNew ? `<input type="number" data-f="tpl" placeholder="e.g. 1300011">` : `<span class="num">${k.tpl}</span>`}</td>
+    <td><input type="text" data-f="name" value="${esc(k.name)}" placeholder="Name"></td>
+    <td><select data-f="group">${groupOptions(k.group)}</select></td>
+    <td style="width:120px"><input type="number" data-f="respawn" min="0" step="0.5" value="${k.respawn ? +(k.respawn / 60).toFixed(2) : ''}" placeholder="auto"></td>
+    <td style="width:70px"><input type="checkbox" data-f="report" ${k.report ? 'checked' : ''}></td>
+    <td class="num">${isNew ? '' : D.spots.filter(s => s.cat === k.cat && s.tpl === k.tpl).length}</td>
+    <td class="act"><button class="btn small ${isNew ? 'primary' : ''}" data-a="save">${isNew ? 'Add' : 'Save'}</button>${isNew ? '' : ' <button class="btn small danger" data-a="del">Delete</button>'}</td></tr>`;
+  $('kinds').innerHTML = kinds.map(k => kindRow(k, false)).join('') + kindRow({ cat: 'object', tpl: 0, name: '', group: 0, respawn: 0, report: true }, true);
+
+  const keep = (sel, html) => { const v = sel.value; sel.innerHTML = html; if ([...sel.options].some(o => o.value === v)) sel.value = v; };
+  keep($('spotKind'), '<option value="">All kinds</option>' + kinds.map(k => `<option value="${kindKey(k)}">${esc(k.name)}</option>`).join(''));
+  const servers = [...new Set(D.states.map(st => st.server))].sort((a, b) => a - b);
+  keep($('spotServer'), servers.map(id => `<option value="${id}">${esc(id ? serverName(id) : 'Game server not known yet')}</option>`).join('') || '<option value="0">No game server yet</option>');
+  renderSpots();
+
+  const drawn = D.maps.filter(m => m.image), plain = D.maps.filter(m => !m.image);
+  const count = (list, f) => { const n = new Map(); for (const x of list) n.set(f(x), (n.get(f(x)) || 0) + 1); return n; };
+  const drawnIds = new Set(drawn.flatMap(m => m.map_ids));
+  const spotsOn = count(D.spots, s => s.map), peopleOn = count(D.people, p => p.map);
+  // Every map id a client is on or something was reported from, also the
+  // raw ids of clients (a person is already shown on the map its id belongs to).
+  const knownIds = new Set(D.maps.flatMap(m => m.map_ids));
+  const unnamed = [...new Set([...spotsOn.keys(), ...peopleOn.keys(), ...D.sessions.map(c => c.map)])].filter(id => id && !knownIds.has(id)).sort((a, b) => a - b);
+  const sum = (m, n) => m.map_ids.reduce((t, id) => t + (n.get(id) || 0), 0);
+  $('mapCount').textContent = D.maps.length + (unnamed.length ? ` + ${unnamed.length} not named` : '');
+  $('mapRows').innerHTML = drawn.map(m => `<tr data-key="${esc(m.key)}"><td><b>${esc(m.name)}</b><br><span class="muted">built in</span></td>
+      <td><input type="text" data-f="ids" value="${m.map_ids.join(', ')}"></td><td><a href="/mapimg/${esc(m.image)}" target="_blank">${esc(m.image)}</a></td>
+      <td class="num">${sum(m, spotsOn)}</td><td class="num">${sum(m, peopleOn)}</td><td class="act"><button class="btn small" data-a="save">Save</button></td></tr>`).join('')
+    + plain.map(m => `<tr data-old="${esc(m.name)}"><td><input type="text" data-f="name" value="${esc(m.name)}"></td>
+      <td><input type="text" data-f="ids" value="${m.map_ids.join(', ')}"></td><td class="muted">grid</td>
+      <td class="num">${sum(m, spotsOn)}</td><td class="num">${sum(m, peopleOn)}</td><td class="act"><button class="btn small" data-a="save">Save</button> <button class="btn small danger" data-a="del">Delete</button></td></tr>`).join('')
+    + unnamed.map(id => `<tr data-id="${id}"><td><input type="text" list="mapHints" data-f="name" value="" placeholder="not named - which map is it?"></td>
+      <td class="num">${id}</td><td class="muted">grid</td>
+      <td class="num">${spotsOn.get(id) || 0}</td><td class="num">${peopleOn.get(id) || 0}</td><td class="act"><button class="btn small primary" data-a="save">Name it</button></td></tr>`).join('')
+    + `<tr><td><input type="text" data-f="name" value="" placeholder="New map"></td><td><input type="text" data-f="ids" value="" placeholder="map id(s), e.g. 20"></td><td class="muted">grid</td><td></td><td></td>
+      <td class="act"><button class="btn small primary" data-a="save">Add</button></td></tr>`;
+
+  const named = new Map((D.servers || []).map(x => [x.id, x]));
+  const statesOn = count(D.states, st => st.server), playersOn = count(D.people, p => p.server);
+  const serverIdList = [...new Set([...statesOn.keys(), ...playersOn.keys(), ...D.sessions.map(c => c.server), ...(D.servers || []).filter(x => x.custom).map(x => x.id)])].filter(Boolean).sort((a, b) => a - b);
+  $('serverCount').textContent = serverIdList.length;
+  $('serverNames').innerHTML = serverIdList.map(id => {
+    const n = named.get(id);
+    return `<tr data-id="${id}"><td class="num">${id}</td><td><input type="text" data-f="name" value="${esc(n ? n.name : '')}" placeholder="Server ${id} - name it"></td>
+      <td>${n ? (n.custom ? 'named here' : 'official list') : '<span class="warn">no name yet</span>'}</td>
+      <td class="num">${playersOn.get(id) || 0}</td><td class="num">${statesOn.get(id) || 0}</td><td class="act"><button class="btn small ${n ? '' : 'primary'}" data-a="save">Save</button></td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="muted">No client has reported its game server yet.</td></tr>';
+
+  $('maps').innerHTML = drawn.map(m => `<tr data-key="${esc(m.key)}"><td><b>${esc(m.name)}</b><br><span class="muted">${esc(m.key)}</span></td>
+    <td><a href="/mapimg/${esc(m.image)}" target="_blank">${esc(m.image)}</a><br><span class="muted">${m.width} &times; ${m.height}</span></td>
+    <td><input type="text" data-f="sx" value="${m.sx}"></td><td><input type="text" data-f="sy" value="${m.sy}"></td>
+    <td><input type="text" data-f="ox" value="${m.ox}"></td><td><input type="text" data-f="oy" value="${m.oy}"></td>
+    <td class="act"><button class="btn small" data-a="save">Save</button></td></tr>`).join('');
+
+  $('clientCount').textContent = D.sessions.length;
+  $('tabPlayers').textContent = D.sessions.length + ' online';
+  $('tabThings').textContent = D.kinds.length;
+  $('tabMaps').textContent = D.maps.length + (unnamed.length ? ' + ' + unnamed.length + ' new' : '');
+  renderChars();
+  const mapOf = id => D.maps.find(m => m.map_ids.includes(id));
+  const people = new Map(D.people.map(p => [p.server + ':' + p.name.toLowerCase(), p]));
+  $('clients').innerHTML = D.sessions.map(c => {
+    const p = people.get(c.server + ':' + c.name.toLowerCase()) || {};
+    return `<tr data-id="${esc(c.id)}"><td><b>${esc(c.name || '(not known yet)')}</b>${p.alts && p.alts.length ? '<br><span class="muted">also ' + esc(p.alts.join(', ')) + '</span>' : ''}</td>
+      <td style="min-width:290px;white-space:nowrap">${c.map ? `<span class="num" title="map id">${c.map}</span>` : '<span class="muted" title="The game tells a client its map id when the character changes zone">id not known yet</span>'}
+        <input type="text" list="mapHints" data-f="mapname" style="width:150px;margin-left:6px" value="${esc(mapOf(c.map) ? mapOf(c.map).name : '')}" placeholder="${c.map ? 'which map is it?' : ''}" ${c.map ? '' : 'disabled'}> <button class="btn small ${c.map && !mapOf(c.map) ? 'primary' : ''}" data-a="map" ${c.map ? '' : 'disabled'}>Set</button></td>
+      <td class="num">${esc(c.owner || '?')}</td><td>${c.server ? esc(serverName(c.server)) : '<span class="muted">not known yet</span>'}</td><td>${esc(p.cls || '')}${p.level ? ' · Lv ' + p.level : ''}</td>
+      <td class="num">${p.x !== undefined ? fmt(p.x) : ''}</td><td class="num">${p.y !== undefined ? fmt(p.y) : ''}</td><td>${ago(c.since)}</td><td>${ago(c.last)}</td>
+      <td class="act"><button class="btn small" data-a="near">What is around</button></td></tr>`
+  }).join('') || '<tr><td colspan="11" class="muted">No Cube Watch client is connected.</td></tr>';
+  $('mapHints').innerHTML = [...new Set(D.maps.map(m => m.name))].sort().map(n => `<option value="${esc(n)}">`).join('');
+  renderNear();
+}
+// Everybody who ever reported: players (installations), the one seen last
+// first, each with its characters.
+function renderChars() {
+  const find = $('charFind').value.trim().toLowerCase();
+  const players = new Map();
+  for (const c of D.chars || []) {
+    if (!players.has(c.owner)) players.set(c.owner, []);
+    players.get(c.owner).push(c);
+  }
+  const last = list => Math.max(...list.map(c => c.online ? Infinity : c.last_seen));
+  const groups = [...players.entries()].filter(([owner, list]) => !find || owner.toLowerCase().includes(find) || list.some(c => c.name.toLowerCase().includes(find)))
+    .sort((a, b) => last(b[1]) - last(a[1]));
+  $('charCount').textContent = `${(D.chars || []).length} of ${players.size} players`;
+  $('chars').innerHTML = groups.map(([owner, list]) => {
+    list.sort((a, b) => (b.online - a.online) || b.last_seen - a.last_seen);
+    return list.map((c, i) => `<tr class="${i ? '' : 'first'}">${i ? '' : `<td rowspan="${list.length}" style="vertical-align:top"><span class="num">${esc(owner || '?')}</span><br><span class="muted">${list.length} character${list.length > 1 ? 's' : ''}</span></td>`}
+      <td><b>${esc(c.name)}</b></td><td>${esc(serverName(c.server))}</td><td>${esc(c.cls || '')}${c.level ? ' · Lv ' + c.level : ''}</td>
+      <td>${c.online ? '<span class="dot"></span><span class="ok">online</span>' : ago(c.last_seen)}</td>
+      <td class="act"><a class="btn small" target="_blank" rel="noopener" href="https://shugo.gg/character/global/${c.server}/${encodeURIComponent(c.name)}">shugo.gg &#8599;</a></td></tr>`).join('');
+  }).join('') || `<tr><td colspan="6" class="muted">${find ? 'Nobody like that.' : 'No Cube Watch has reported with a character yet.'}</td></tr>`;
+}
+$('charFind').addEventListener('input', renderChars);
+$('tabs').addEventListener('click', e => {
+  const b = e.target.closest('button[data-tab]');
+  if (b) showTab(b.dataset.tab);
+});
+function showTab(tab) {
+  $('panel').dataset.tab = tab;
+  for (const b of $('tabs').querySelectorAll('button')) b.classList.toggle('on', b.dataset.tab === tab);
+  try { localStorage.setItem('cw-admin-tab', tab); } catch (e) {}
+}
+showTab((() => { try { return localStorage.getItem('cw-admin-tab'); } catch (e) { return null; } })() || 'players');
+
+let nearId = null;
+function renderNear() {
+  const c = D.sessions.find(x => x.id === nearId);
+  $('near').hidden = !c;
+  if (!c) return;
+  $('nearWho').textContent = c.name || '(not known yet)';
+  $('nearAge').textContent = c.near_at ? ago(c.near_at) : 'asking...';
+  const kinds = new Map(D.kinds.map(k => [kindKey(k), k]));
+  $('nearItems').innerHTML = (c.near || []).map(it => {
+    const k = kinds.get(kindKey(it));
+    return `<tr data-cat="${esc(it.cat)}" data-tpl="${it.tpl}"><td class="num">${it.dist >= 0 ? fmt(it.dist) : '?'}</td><td>${esc(it.cat)}</td><td class="num">${it.tpl}</td>
+      <td class="num">${fmt(it.x)}</td><td class="num">${fmt(it.y)}</td><td class="num">${fmt(it.z)}</td>
+      <td><input type="text" data-f="name" value="${esc(k ? k.name : '')}" placeholder="not tracked - name it"></td>
+      <td><select data-f="group">${groupOptions(k ? k.group : (D.groups[0] || {}).id || 0)}</select></td>
+      <td class="act"><button class="btn small ${k ? '' : 'primary'}" data-a="track">${k ? 'Rename' : 'Track'}</button></td></tr>`;
+  }).join('') || `<tr><td colspan="9" class="muted">${c.near_at ? 'That client sees nothing right now.' : 'Waiting for the answer...'}</td></tr>`;
+}
+function renderSpots() {
+  const kind = $('spotKind').value, server = +$('spotServer').value, find = $('spotFind').value.trim().toLowerCase();
+  const names = new Map(D.kinds.map(k => [kindKey(k), k.name]));
+  const states = new Map(D.states.filter(st => st.server === server).map(st => [st.spot_id, st]));
+  let spots = D.spots.filter(s => (!kind || kindKey(s) === kind) && (!find || `${s.id} ${s.label} ${Math.round(s.x)} ${Math.round(s.y)} ${names.get(kindKey(s)) || ''}`.toLowerCase().includes(find)));
+  spots.sort((a, b) => b.spawns - a.spawns || a.id - b.id);
+  $('spotCount').textContent = spots.length + (spots.length > 300 ? ' (first 300 shown)' : '');
+  $('spots').innerHTML = spots.slice(0, 300).map(s => {
+    const st = states.get(s.id);
+    const state = !st ? '<span class="muted">-</span>' : st.present ? '<span class="ok">here</span>' : st.expected ? (st.expected > now() ? 'in ' + span(st.expected - now()) : '<span class="warn">due</span>') : '<span class="muted">gone</span>';
+    return `<tr data-id="${s.id}"><td class="num">${s.id}</td><td>${esc(names.get(kindKey(s)) || kindKey(s))}</td><td>${s.map}</td>
+      <td class="num">${fmt(s.x)}</td><td class="num">${fmt(s.y)}</td><td class="num">${fmt(s.z)}</td><td>${state}</td>
+      <td>${st && st.taken_at ? ago(st.taken_at) + (st.taken_by ? ' · ' + esc(st.taken_by) : '') : '<span class="muted">-</span>'}</td>
+      <td class="num">${s.spawns}</td><td class="num">${s.takes}</td><td class="num">${s.pickup ? span(s.pickup) : '-'}</td><td class="num">${s.respawn ? span(s.respawn) : '-'}</td>
+      <td><input type="text" data-f="label" value="${esc(s.label)}"></td><td><input type="checkbox" data-f="hidden" ${s.hidden ? 'checked' : ''}></td>
+      <td class="act"><button class="btn small" data-a="save">Save</button> <button class="btn small danger" data-a="del">Delete</button></td></tr>`;
+  }).join('') || '<tr><td colspan="15" class="muted">No spots yet - they appear when a client sees a tracked kind.</td></tr>';
+}
+for (const id of ['spotKind', 'spotServer']) $(id).addEventListener('change', renderSpots);
+$('spotFind').addEventListener('input', renderSpots);
+
+// ---- actions --------------------------------------------------------------------------------
+const field = (tr, f) => tr.querySelector(`[data-f="${f}"]`);
+const val = (tr, f) => { const el = field(tr, f); return el.type === 'checkbox' ? el.checked : el.value; };
+function onRow(tbody, handler) {
+  $(tbody).addEventListener('click', e => { const a = e.target.dataset.a; if (a) handler(e.target.closest('tr'), a); });
+}
+onRow('groups', (tr, a) => {
+  const id = +tr.dataset.id;
+  if (a === 'del') return confirm('Delete this group? Its kinds stay, without a group.') && act(api(`group/${id}/delete`, {}), 'Group deleted');
+  act(api('group/save', { id, name: val(tr, 'name'), color: val(tr, 'color'), sort: +val(tr, 'sort') || 0 }), 'Group saved');
+});
+onRow('kinds', (tr, a) => {
+  const old = D.kinds.find(k => kindKey(k) === tr.dataset.key);
+  const cat = old ? old.cat : val(tr, 'cat'), tpl = old ? old.tpl : +val(tr, 'tpl');
+  if (a === 'del') return confirm(`Delete "${old.name}" with all its spots and history?`) && act(api('kind/delete', { cat, tpl }), 'Kind deleted');
+  act(api('kind/save', { cat, tpl, name: val(tr, 'name'), group: +val(tr, 'group'), respawn: Math.round((parseFloat(val(tr, 'respawn')) || 0) * 60), report: val(tr, 'report') }), 'Kind saved');
+});
+onRow('spots', (tr, a) => {
+  const id = +tr.dataset.id;
+  if (a === 'del') return confirm(`Delete spot #${id} and its history?`) && act(api(`spot/${id}/delete`, {}), 'Spot deleted');
+  act(api('spot/save', { id, label: val(tr, 'label'), hidden: val(tr, 'hidden') }), 'Spot saved');
+});
+onRow('clients', async (tr, a) => {
+  if (a === 'map') {
+    try {
+      const r = await api('client/map', { id: tr.dataset.id, name: val(tr, 'mapname') });
+      toast(`Map id ${r.map} is "${r.name}" now`);
+      await load(true);
+    } catch (e) { toast(e.message, true); }
+    return;
+  }
+  nearId = tr.dataset.id;
+  try {
+    await api('client/nearby', { id: nearId });
+    renderNear();
+    setTimeout(() => load().catch(() => {}), 900);   // the answer takes a moment
+    setTimeout(() => load().catch(() => {}), 2500);
+  } catch (e) { toast(e.message, true); }
+});
+onRow('nearItems', tr => {
+  const cat = tr.dataset.cat, tpl = +tr.dataset.tpl, old = D.kinds.find(k => k.cat === cat && k.tpl === tpl);
+  act(api('kind/save', { cat, tpl, name: val(tr, 'name'), group: +val(tr, 'group'), respawn: old ? old.respawn : 0, report: old ? old.report : true }), old ? 'Kind renamed' : 'Now tracked by every client');
+});
+onRow('mapRows', (tr, a) => {
+  const ids = s => s.split(/[\s,;]+/).map(Number).filter(n => n > 0);
+  if (tr.dataset.key) {   // the built-in map: its ids; the calibration stays
+    const m = D.maps.find(x => x.key === tr.dataset.key);
+    return act(api('map/save', { key: m.key, map_ids: ids(val(tr, 'ids')), sx: m.sx, sy: m.sy, ox: m.ox, oy: m.oy }), 'Map saved');
+  }
+  const old = tr.dataset.old || '';
+  if (a === 'del') return confirm(`Delete the map "${old}"? Its spots and their history stay; they are shown under "Map <id>" until the id is named again.`) && act(api('map/define', { old, name: old, ids: [] }), 'Map deleted');
+  const name = val(tr, 'name').trim();
+  if (!name) return toast('Type the name of the map', true);
+  act(api('map/define', { old, name, ids: tr.dataset.id ? [+tr.dataset.id] : ids(val(tr, 'ids')) }), old ? 'Map saved' : 'Map added');
+});
+// Enter in a row does what the row's first button does.
+$('panel').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || !e.target.matches('tbody input')) return;
+  const button = e.target.closest('tr').querySelector('button[data-a]:not(.danger):not([disabled])');
+  if (button) { e.preventDefault(); button.click(); }
+});
+onRow('serverNames', tr => {
+  const id = +tr.dataset.id, name = val(tr, 'name').trim(), n = (D.servers || []).find(x => x.id === id);
+  // the official name typed back is not a name of the admin's
+  act(api('name/save', { what: 'server', id, name: n && !n.custom && n.name === name ? '' : name }), 'Game server named');
+});
+onRow('maps', tr => {
+  act(api('map/save', { key: tr.dataset.key, map_ids: D.maps.find(m => m.key === tr.dataset.key).map_ids,
+    sx: parseFloat(val(tr, 'sx')), sy: parseFloat(val(tr, 'sy')), ox: parseFloat(val(tr, 'ox')), oy: parseFloat(val(tr, 'oy')) }), 'Map saved');
+});
+$('calc').onclick = () => {
+  const n = id => parseFloat($(id).value.replace(/[\s,]/g, ''));
+  const [ax, ay, apx, apy, bx, by, bpx, bpy] = ['ax', 'ay', 'apx', 'apy', 'bx', 'by', 'bpx', 'bpy'].map(n);
+  if ([ax, ay, apx, apy, bx, by, bpx, bpy].some(isNaN) || ax === bx || ay === by) return toast('Enter two points that differ in both X and Y', true);
+  // one scale for both axes (least squares), offsets from the mean of both points
+  const dx = bx - ax, dy = by - ay, s = (dx * (bpx - apx) + dy * (bpy - apy)) / (dx * dx + dy * dy);
+  const tr = $('maps').querySelector('tr');
+  field(tr, 'sx').value = field(tr, 'sy').value = +s.toPrecision(8);
+  field(tr, 'ox').value = +(((apx - s * ax) + (bpx - s * bx)) / 2).toFixed(1);
+  field(tr, 'oy').value = +(((apy - s * ay) + (bpy - s * by)) / 2).toFixed(1);
+  toast('Computed - press Save in the map row to apply');
+};
+$('importBtn').onclick = () => $('importFile').click();
+$('importFile').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const r = await api('import', f);
+    toast(`Imported: ${r.groups_added} groups, ${r.kinds_added} kinds, ${r.spots_added} spots, ${r.events_added} of ${r.events_total} events were new`);
+    await load();
+  } catch (err) { toast(err.message, true); }
+};
+$('historyBtn').onclick = () => $('historyFile').click();
+$('historyFile').onchange = async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  let rows = 0, added = 0, spots = 0;
+  try {
+    for (const f of files) {
+      const r = await api('import_history', f);
+      rows += r.rows; added += r.added; spots += r.spots;
+    }
+    toast(`History: ${rows} cubes read, ${added} new sightings, ${spots} new places`);
+    await load();
+  } catch (err) { toast(err.message, true); }
+};
+$('reload').onclick = () => load();
+$('logout').onclick = async () => { await api('logout', {}).catch(() => {}); location.reload(); };
+$('login').addEventListener('submit', async e => {
+  e.preventDefault();
+  try { await api('login', { password: $('pw').value }); $('pw').value = ''; $('loginErr').textContent = ''; start(); } catch (err) { $('loginErr').textContent = err.message; }
+});
+
+// load reads everything and draws it - but not while somebody is typing in a
+// table (a button that was clicked and still has the focus is not typing).
+// `force`: after an action, when what was typed has been sent.
+async function load(force) {
+  D = await api('overview');
+  const el = document.activeElement;
+  const typing = el && el.matches('input:not([type=checkbox]):not([type=color]), select, textarea') && el.closest('#panel table, .calc');
+  if (!typing || force || load.first) render();
+  load.first = false;
+}
+async function start() {
+  const me = await fetch('/api/admin/me').then(r => r.json()).catch(() => ({ error: 'offline' }));
+  if (me.error) { document.querySelector('.wrap').insertAdjacentHTML('beforeend', `<div class="card bad">${esc(me.error)}</div>`); return; }
+  $('logout').hidden = !me.password_set;
+  if (!me.authed) return showLogin();
+  $('login').hidden = true; $('panel').hidden = false;
+  load.first = true;
+  await load().catch(e => toast(e.message, true));
+}
+setInterval(() => { if (!$('panel').hidden) load().catch(() => {}); }, 5000);
+start();
+</script>
+</body>
+</html>

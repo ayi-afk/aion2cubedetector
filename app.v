@@ -1,10 +1,13 @@
 module main
 
 import math
+import objdb
 import os
 import proto
+import remote
 import strings
 import time
+import wire
 
 const app_title = 'Cube Watch'
 const window_class = 'CubeWatchMainWindow'
@@ -22,8 +25,8 @@ const tray_id = u32(1)
 // last known fix is always used; past this age it is shown as stale.
 const stale_position_seconds = 10.0
 // Entering an instance gives the character a new entity id, so updates for
-// it are ignored; past this age the player is detected again (and again
-// every this many seconds while no fresh position arrives).
+// it are ignored; past this age another entity may take over as the player
+// (and again every this many seconds while no fresh position arrives).
 const player_redetect_seconds = 15.0
 // Position freshness shown by the compass dot and the overlay ring: green
 // below this age, yellow until player_redetect_seconds, then red.
@@ -34,6 +37,9 @@ const trend_threshold = 10.0
 const cube_linger_seconds = 20.0
 // A taken (opened / destroyed) cube shows a red X on the map overlay this long.
 const taken_marker_seconds = 5.0
+// Map of a cube that was seen while the map was not known and then left
+// behind by a map change: some other map, whichever it was.
+const map_left_behind = u32(0xFFFFFFFF)
 
 enum Ctl {
 	status = 100
@@ -85,6 +91,9 @@ enum Ctl {
 	auto_clear
 	overlay_history
 	save_packets
+	tab_cubes
+	tab_objects
+	objects
 }
 
 // Controls shown only in the standard (full) view.
@@ -94,7 +103,8 @@ const standard_only_controls = [Ctl.status, .adapter_label, .adapter, .start_sto
 	.rotate_north, .range_label, .compass_range, .overlay, .overlay_ui_label, .overlay_ui,
 	.overlay_zoom_label, .overlay_zoom, .overlay_opacity_label, .overlay_opacity, .overlay_unlock,
 	.overlay_reset, .history_toggle, .history, .overlay_xyz, .xyz_alpha, .xyz_order, .overlay_ring,
-	.ring_radius, .auto_clear_label, .auto_clear, .overlay_history, .save_packets]
+	.ring_radius, .auto_clear_label, .auto_clear, .overlay_history, .save_packets, .tab_cubes,
+	.tab_objects, .objects]
 
 // List view columns.
 const col_seen = 1
@@ -140,6 +150,7 @@ mut:
 	spawned        int = -1 // appeared inside the view range: 1 / 0 / -1 unknown
 	first_distance f64 = -1 // planar distance at first sight
 	logged         bool
+	map            u32 // map it is on, 0 unknown (or map_left_behind)
 }
 
 // is_target reports whether the cube can still be collected.
@@ -186,6 +197,17 @@ mut:
 	history_file  string
 	history_spots []HistorySpot
 	history_view  bool
+	// Objects tab (objects.v): the objects and NPCs in view, nearest first,
+	// and the names / places database behind it.
+	objects           []ObjectRow
+	objects_view      bool
+	objects_dirty     bool
+	objects_editing   bool // a name is being typed
+	objects_refreshed f64
+	edit_category     string // template whose name is being typed
+	edit_template     u32
+	objdb             objdb.Db
+	objdb_saved       f64
 	// Map overlay window (overlay.v); drag = edge bits while moving, -1 idle.
 	overlay_hwnd       voidptr
 	overlay_unlocked   bool
@@ -206,23 +228,31 @@ mut:
 	cube_count         int
 	player             ?PlayerFix
 	player_id          ?u64
-	trend_ref          ?f64
-	trend_ref_time     f64
-	trend              f64
-	targets            []Target // nearest first
-	taken              []Target // cubes taken in the last taken_marker_seconds
-	targets_stale      bool     // player position is old
-	calibrating        bool
-	calib_start        PlayerFix // position when calibration started
-	last_refresh       f64
-	last_redetect      f64 // last automatic player re-detection
-	status_text        string
-	install_visible    bool
-	admin_visible      bool
-	dirty              bool
-	tray_added         bool
-	tray_hint_shown    bool
-	taskbar_created    u32
+	map_id             u32 // map the character is on, 0 until the server names it
+	// The backend (backend.v): the connection, whether it is up, the kinds
+	// it tracks and when the position was last reported.
+	remote          &remote.Link = unsafe { nil }
+	remote_online   bool
+	remote_problem  string // why the backend is not connected, as last shown in the status line
+	remote_kinds    map[string]wire.KindInfo
+	remote_me_at    f64
+	trend_ref       ?f64
+	trend_ref_time  f64
+	trend           f64
+	targets         []Target // nearest first
+	taken           []Target // cubes taken in the last taken_marker_seconds
+	targets_stale   bool     // player position is old
+	calibrating     bool
+	calib_start     PlayerFix // position when calibration started
+	last_refresh    f64
+	last_redetect   f64 // last automatic player re-detection
+	status_text     string
+	install_visible bool
+	admin_visible   bool
+	dirty           bool
+	tray_added      bool
+	tray_hint_shown bool
+	taskbar_created u32
 }
 
 fn (app &App) ctl(id Ctl) voidptr {
@@ -312,6 +342,12 @@ fn (mut app App) on_create() {
 		'Compact view'
 	}, ws_tabstop | bs_pushbutton, 0)
 	app.add(.nearest, 'STATIC', 'No cubes detected yet.', ss_endellipsis, 0)
+	// Push-like check boxes work as the tabs of the list area.
+	tab_cubes := app.add(.tab_cubes, 'BUTTON', 'Cubes', ws_tabstop | bs_autocheckbox | bs_pushlike,
+		0)
+	C.SendMessageW(tab_cubes, bm_setcheck, 1, 0)
+	app.add(.tab_objects, 'BUTTON', 'Objects', ws_tabstop | bs_autocheckbox | bs_pushlike,
+		0)
 	list := app.add(.list, 'SysListView32', '', ws_tabstop | lvs_report | lvs_showselalways | lvs_nosortheader,
 		ws_ex_clientedge)
 	app.init_list(list)
@@ -327,6 +363,10 @@ fn (mut app App) on_create() {
 	history := app.add(.history, 'SysListView32', '', ws_tabstop | lvs_report | lvs_ownerdata | lvs_showselalways | lvs_nosortheader,
 		ws_ex_clientedge)
 	app.init_history_list(history)
+	objects := app.add(.objects, 'SysListView32', '', ws_tabstop | lvs_report | lvs_ownerdata | lvs_showselalways | lvs_nosortheader | lvs_singlesel | lvs_editlabels,
+		ws_ex_clientedge)
+	app.init_objects_list(objects)
+	subclass_list(objects, app)
 	ranges := app.add(.compass_range, 'COMBOBOX', '', ws_tabstop | ws_vscroll | cbs_dropdownlist,
 		0)
 	for r in compass_ranges {
@@ -381,6 +421,7 @@ fn (mut app App) on_create() {
 		0)
 
 	app.taskbar_created = C.RegisterWindowMessageW('TaskbarCreated'.to_wide())
+	app.start_remote()
 	app.add_tray_icon()
 	app.apply_theme()
 	app.apply_opacity()
@@ -499,15 +540,21 @@ fn (mut app App) layout() {
 	app.place(.nearest, m, y, w - 2 * m, row)
 	y += row
 
+	// The tabs sit above the list; the compass keeps the full height.
+	app.place(.tab_cubes, m, y, btn_w, row)
+	app.place(.tab_objects, m + btn_w + gap, y, btn_w, row)
+	tabs_h := row + gap
+
 	bottom_rows := 5
 	list_bottom := h - m - bottom_rows * row - (bottom_rows - 1) * gap - gap
 	compass_w := app.s(190)
-	list_h := math.max(list_bottom - y, app.s(60))
+	area_h := math.max(list_bottom - y, app.s(60) + tabs_h)
 	compass_x := w - m - compass_w
-	list_y := y
-	app.place(.list, m, y, compass_x - gap - m, list_h)
-	north_y := y + list_h - row
-	app.place(.compass, compass_x, y, compass_w, list_h - row - gap)
+	list_y := y + tabs_h
+	list_h := area_h - tabs_h
+	app.place(.list, m, list_y, compass_x - gap - m, list_h)
+	north_y := y + area_h - row
+	app.place(.compass, compass_x, y, compass_w, area_h - row - gap)
 	rotate_w := app.s(70)
 	app.place(.calibrate, compass_x, north_y, compass_w - rotate_w - gap, row)
 	app.place(.rotate_north, compass_x + compass_w - rotate_w, north_y, rotate_w, row)
@@ -579,10 +626,14 @@ fn (mut app App) layout() {
 		})
 		ox += cw + gap
 	}
-	// The History list takes the cube list's place while "History" is ticked.
+	// The History list takes the cube list's place while "History" is ticked,
+	// the Objects list on its tab.
 	app.place(.history, m, list_y, compass_x - gap - m, list_h)
-	app.show(.list, !compact && !app.history_view)
-	app.show(.history, !compact && app.history_view)
+	app.place(.objects, m, list_y, compass_x - gap - m, list_h)
+	app.show(.list, !compact && !app.objects_view && !app.history_view)
+	app.show(.history, !compact && !app.objects_view && app.history_view)
+	app.show(.objects, !compact && app.objects_view)
+	app.show(.history_toggle, !compact && !app.objects_view) // belongs to the cubes
 }
 
 fn (app &App) place(id Ctl, x int, y int, w int, h int) {
@@ -742,6 +793,8 @@ fn (mut app App) on_capture_events() {
 			}
 			.server {
 				app.set_status('Capturing. Game server detected: ${ev.text}', false)
+				app.clear_objects() // another server, other entity ids
+				app.set_map(0) // and another map, named once the character is placed
 			}
 			.decoded {
 				app.on_decoded(ev.ev)
@@ -807,20 +860,61 @@ fn (mut app App) report(text string, is_error bool) {
 
 fn (mut app App) on_decoded(ev proto.Event) {
 	match ev.kind {
+		// The Objects tab redraws on its own; NPC movement must not make
+		// the cube list and the overlay repaint all the time.
+		.entity {
+			app.on_entity(ev)
+			return
+		}
+		.entity_moved {
+			app.on_entity_moved(ev)
+			return
+		}
+		.entity_removed {
+			app.on_entity_removed(ev)
+			return
+		}
+		.entity_opened {
+			app.on_entity_opened(ev)
+			return
+		}
+		.game_server {
+			app.settings.character_server = int(ev.id)
+			app.save()
+			app.remote_me(true)
+		}
+		.player_name {
+			app.settings.character = ev.name
+			app.save()
+			app.remote_me(true)
+		}
 		.player_detected {
 			app.player_id = ev.id
+		}
+		.player_lost {
+			// What was followed was an NPC: its position is not ours.
+			app.player_id = none
+			app.player = none
+		}
+		.map_entered {
+			app.set_map(u32(ev.id))
+			app.remote_me(true)
 		}
 		.player {
 			fix := PlayerFix{ev.pos, ev.timestamp}
 			app.player = fix
+			app.objects_dirty = true
 			app.check_calibration(fix)
+			app.remote_me(false)
 		}
 		.cube {
 			app.on_cube(ev)
 		}
 		.cube_visible {
-			app.update_cube(ev.id, fn [ev] (mut c CubeRow) {
+			map_id := app.map_id
+			app.update_cube(ev.id, fn [ev, map_id] (mut c CubeRow) {
 				c.pos = ev.pos
+				c.map = map_id // it is here, whatever was known before
 				if c.state == .out_of_view {
 					c.state = .available
 				}
@@ -909,7 +1003,7 @@ fn (mut app App) auto_redetect() {
 		return
 	}
 	app.last_redetect = now
-	app.capture.request_player_reset()
+	app.capture.request_player_rearm()
 }
 
 // freshness_color: green / yellow / red for the age of the last position.
@@ -921,6 +1015,29 @@ fn (app &App) freshness_color(age f64) u32 {
 	} else {
 		app.theme.error
 	}
+}
+
+// on_this_map reports whether something seen on the map `seen_on` may be
+// drawn around the player. Only what is known to be elsewhere is held
+// back: an unknown map (0, e.g. history of older versions) is shown, and so
+// is everything while the current map is not known yet.
+fn (app &App) on_this_map(seen_on u32) bool {
+	return seen_on != map_left_behind && (seen_on == 0 || app.map_id == 0 || seen_on == app.map_id)
+}
+
+// set_map follows the character to another map (0 = not known yet), so
+// cubes and history of the previous one are not laid over this one.
+fn (mut app App) set_map(map_id u32) {
+	if map_id != 0 {
+		for mut c in app.cubes {
+			if c.map == 0 {
+				c.map = map_left_behind
+			}
+		}
+	}
+	app.map_id = map_id
+	app.regroup_history()
+	app.dirty = true
 }
 
 fn (app &App) is_self(id u64) bool {
@@ -970,6 +1087,9 @@ fn (mut app App) update_cube(id u64, change fn (mut CubeRow)) {
 }
 
 fn (app &App) state_text(c CubeRow) string {
+	if !app.on_this_map(c.map) {
+		return 'other map'
+	}
 	// The full player id is shown in the status line; keep the cell short.
 	who := if app.is_self(c.actor) { 'you' } else { 'other' }
 	return match c.state {
@@ -990,6 +1110,7 @@ fn (mut app App) on_cube(ev proto.Event) {
 		pos:      ev.pos
 		seen:     seen
 		appeared: ev.timestamp
+		map:      app.map_id
 	}
 	if p := app.player {
 		row.first_distance = math.hypot(ev.pos.x - p.pos.x, ev.pos.y - p.pos.y)
@@ -1079,7 +1200,16 @@ fn (mut app App) refresh_distances() {
 	app.dirty = false
 	now := now_seconds()
 	app.last_refresh = now
-	id_text := if id := app.player_id { ' | entity ${id}' } else { '' }
+	map_text := if app.map_id != 0 { ' | map ${app.map_id}' } else { '' }
+	who_text := if app.settings.character != '' {
+		' | ${app.settings.character}@${app.settings.character_server}'
+	} else if app.remote_on() {
+		' | name not known yet (change zone once)'
+	} else {
+		''
+	}
+	tail_text := '${who_text}${map_text}${app.remote_text()}'
+	id_text := if id := app.player_id { ' | entity ${id}${tail_text}' } else { tail_text }
 	p := app.player or {
 		set_text(app.ctl(.player), 'Player: waiting for a position update from the server${id_text}')
 		for i in 0 .. app.cubes.len {
@@ -1104,6 +1234,13 @@ fn (mut app App) refresh_distances() {
 	mut targets := []Target{}
 	mut taken := []Target{}
 	for i, cube in app.cubes {
+		app.set_cell(i, col_state, app.state_text(cube))
+		if !app.on_this_map(cube.map) {
+			// Its position means nothing on this map: no distance, no arrow.
+			app.set_cell(i, col_distance, '-')
+			app.set_cell(i, col_height, '-')
+			continue
+		}
 		dx, dy, dz := cube.pos.x - p.pos.x, cube.pos.y - p.pos.y, cube.pos.z - p.pos.z
 		planar := math.hypot(dx, dy)
 		app.set_cell(i, col_distance, format_units(planar))
@@ -1477,11 +1614,19 @@ fn (mut app App) copy_selected() {
 		return
 	}
 	text := format_pos(app.cubes[index].pos)
+	if app.copy_text(text) {
+		app.set_status('Copied cube #${app.cubes[index].number} coordinates: ${text}',
+			false)
+	}
+}
+
+// copy_text puts `text` on the clipboard.
+fn (mut app App) copy_text(text string) bool {
 	wide := text.to_wide()
 	bytes := usize((text.len + 1) * 2)
 	if C.OpenClipboard(app.hwnd) == 0 {
 		app.set_status('Clipboard is busy; try again.', true)
-		return
+		return false
 	}
 	C.EmptyClipboard()
 	mem := C.GlobalAlloc(0x2, bytes) // GMEM_MOVEABLE
@@ -1494,7 +1639,7 @@ fn (mut app App) copy_selected() {
 		}
 	}
 	C.CloseClipboard()
-	app.set_status('Copied cube #${app.cubes[index].number} coordinates: ${text}', false)
+	return true
 }
 
 fn (mut app App) open_npcap_download() {
@@ -1550,11 +1695,26 @@ fn (mut app App) on_command(id int, code int) {
 			set_text(app.ctl(.player), 'Player: re-detecting - move your character')
 			app.dirty = true
 		}
+		int(Ctl.tab_cubes) {
+			app.set_objects_view(false)
+		}
+		int(Ctl.tab_objects) {
+			app.set_objects_view(true)
+		}
+		// "Clear list" and "Copy XYZ" work on the tab that is shown.
 		int(Ctl.clear) {
-			app.clear_cubes()
+			if app.objects_view {
+				app.clear_objects()
+			} else {
+				app.clear_cubes()
+			}
 		}
 		int(Ctl.copy) {
-			app.copy_selected()
+			if app.objects_view {
+				app.copy_object()
+			} else {
+				app.copy_selected()
+			}
 		}
 		int(Ctl.save_packets) {
 			app.save_packets()
@@ -1683,6 +1843,10 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			app.on_capture_events()
 			return 0
 		}
+		wm_remote {
+			app.on_remote()
+			return 0
+		}
 		wm_timer {
 			if wparam == timer_refresh {
 				app.check_trial()
@@ -1690,6 +1854,8 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 					return 0
 				}
 				app.prune_cubes()
+				app.tick_objects()
+				app.tick_remote()
 				app.auto_redetect()
 				app.keep_overlay_on_top()
 				// Keeps the position age and the update dot in the corner live.
@@ -1732,6 +1898,9 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 				mut cd := unsafe { &NmLvCustomDraw(voidptr(lparam)) }
 				return app.list_custom_draw(mut cd)
 			}
+			if hdr.hwnd_from == app.ctl(.objects) {
+				return app.on_objects_notify(hdr, lparam)
+			}
 			if hdr.hwnd_from == app.ctl(.history) && hdr.code == lvn_getdispinfow {
 				mut info := unsafe { &NmLvDispInfo(voidptr(lparam)) }
 				app.history_dispinfo(mut info)
@@ -1763,7 +1932,7 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 			info.min_track = if app.settings.compact {
 				Point{app.s(180), app.s(230)}
 			} else {
-				Point{app.s(640), app.s(430)}
+				Point{app.s(640), app.s(460)}
 			}
 			return 0
 		}
@@ -1809,6 +1978,10 @@ fn (mut app App) handle(msg u32, wparam usize, lparam isize) isize {
 		}
 		wm_destroy {
 			app.log_open_cubes()
+			app.save_objdb()
+			if app.remote_on() {
+				app.remote.close()
+			}
 			if app.overlay_hwnd != unsafe { nil } {
 				C.DestroyWindow(app.overlay_hwnd)
 			}
@@ -1947,11 +2120,12 @@ fn run_app(start_hidden bool, replay_path string) int {
 		replay_path:  replay_path
 		trial:        trial
 		history:      load_history()
+		objdb:        objdb.load(data_dir())
 		gdip:         load_gdip()
 		theme:        light_theme
 		elevated:     is_elevated()
 	}
-	app.history_spots = group_history(app.history)
+	app.regroup_history()
 	screen := C.GetDC(unsafe { nil })
 	app.dpi = C.GetDeviceCaps(screen, logpixelsy)
 	C.ReleaseDC(unsafe { nil }, screen)

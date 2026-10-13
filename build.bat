@@ -6,6 +6,9 @@ setlocal
 cd /d "%~dp0"
 tasklist /fi "imagename eq cube_watch.exe" | findstr /i "cube_watch.exe" >nul && (echo cube_watch.exe is running - close it first ^(tray: Exit^) & exit /b 1)
 v test proto || exit /b 1
+v test objdb || exit /b 1
+v test wire || exit /b 1
+v run tools\envgen build_remote.v || exit /b 1
 v run tools\stamp build_stamp.v || exit /b 1
 rem no_backtrace: V's first-chance exception handler would walk stacks inside
 rem shell / codec components that throw and catch exceptions (file dialog, MP3).

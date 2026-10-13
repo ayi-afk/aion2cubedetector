@@ -96,6 +96,7 @@ fn C.GlobalAlloc(flags u32, size usize) voidptr
 fn C.GlobalLock(mem voidptr) voidptr
 fn C.GlobalUnlock(mem voidptr) int
 fn C.GlobalFree(mem voidptr) voidptr
+fn C.SetFocus(hwnd voidptr) voidptr
 
 const wm_create = u32(0x0001)
 const wm_destroy = u32(0x0002)
@@ -131,6 +132,7 @@ const ws_ex_clientedge = u32(0x00000200)
 
 const bs_pushbutton = u32(0)
 const bs_autocheckbox = u32(3)
+const bs_pushlike = u32(0x1000)
 const bm_getcheck = u32(0x00F0)
 const bm_setcheck = u32(0x00F1)
 const bm_setimage = u32(0x00F7)
@@ -187,6 +189,20 @@ const lvm_getitemcount = lvm_first + 4
 const lvm_setitemcount = lvm_first + 47
 const lvs_ownerdata = u32(0x1000)
 const lvn_getdispinfow = -177
+const lvn_beginlabeleditw = -175
+const lvn_endlabeleditw = -176
+const lvn_keydown = -155
+const nm_dblclk = -3
+const vk_f2 = u16(0x71)
+const lvs_singlesel = u32(0x0004)
+const lvs_editlabels = u32(0x0200)
+const lvm_setitemstate = lvm_first + 43
+const lvm_editlabelw = lvm_first + 118
+const lvis_focused = u32(0x1)
+const lvis_selected = u32(0x2)
+// LVM_SETITEMCOUNT: keep the scroll position and repaint only what changed.
+const lvsicf_noinvalidateall = isize(0x1)
+const lvsicf_noscroll = isize(0x2)
 const lvm_deleteitem = lvm_first + 8
 const lvm_deleteallitems = lvm_first + 9
 const lvm_setextendedlistviewstyle = lvm_first + 54

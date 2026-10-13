@@ -166,7 +166,7 @@ fn set_dark_title_bar(hwnd voidptr, dark bool) {
 // Controls grouped by how they are themed.
 const themed_push_buttons = [Ctl.install_npcap, .run_as_admin, .start_stop, .redetect, .view_toggle,
 	.clear, .copy, .browse, .test_sound, .calibrate, .rotate_north, .overlay_unlock, .overlay_reset,
-	.save_packets]
+	.save_packets, .tab_cubes, .tab_objects]
 const themed_checkboxes = [Ctl.topmost, .close_to_tray, .dark_mode, .overlay, .history_toggle,
 	.overlay_xyz, .overlay_ring, .overlay_history]
 const themed_fields = [Ctl.adapter, .sound_mode, .sound_file, .compass_range, .xyz_order, .overlay_ui,
@@ -194,7 +194,7 @@ fn (mut app App) apply_theme() {
 	for id in themed_fields {
 		set_window_theme(app.ctl(id), if dark { 'DarkMode_CFD' } else { '' })
 	}
-	for list in [app.ctl(.list), app.ctl(.history)] {
+	for list in [app.ctl(.list), app.ctl(.history), app.ctl(.objects)] {
 		set_window_theme(list, if dark { 'DarkMode_Explorer' } else { '' })
 		header := voidptr(C.SendMessageW(list, lvm_getheader, 0, 0))
 		set_window_theme(header, if dark { 'DarkMode_ItemsView' } else { '' })
@@ -259,7 +259,7 @@ fn list_subclass_proc(hwnd voidptr, msg u32, wparam usize, lparam isize, id usiz
 }
 
 fn (app &App) cube_color(c CubeRow) u32 {
-	return if c.is_target() {
+	return if c.is_target() && app.on_this_map(c.map) {
 		app.theme.cube_color[(c.number - 1) % app.theme.cube_color.len]
 	} else {
 		app.theme.ended

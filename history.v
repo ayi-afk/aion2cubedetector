@@ -12,7 +12,7 @@ import time
 // (taken, destroyed, cleared or app exit). All data/cubes_*.csv files are
 // loaded at startup for the History list and the overlay's history dots.
 //
-// Columns: appeared, spawned_in_range, x, y, z, taken_by_us, distance
+// Columns: appeared, spawned_in_range, x, y, z, taken_by_us, distance, map
 //   spawned_in_range: 1 = it appeared already inside the view range (we
 //     were there when it spawned), 0 = we came into range of an existing
 //     cube; estimated from the distance at first sight (see
@@ -21,8 +21,10 @@ import time
 //     (vanished, cleared or still there)
 //   distance: planar distance at first sight, so spawned_in_range can be
 //     re-estimated later
+//   map: id of the map the character was on, empty when unknown (files
+//     written by older versions do not have this column)
 
-const history_header = 'appeared,spawned_in_range,x,y,z,taken_by_us,distance'
+const history_header = 'appeared,spawned_in_range,x,y,z,taken_by_us,distance,map'
 // Cubes come into view about 15,000 units away; one first seen clearly
 // closer than that most likely spawned while we were in range.
 const spawn_in_range_units = 12000.0
@@ -35,6 +37,7 @@ struct HistoryRow {
 	pos      proto.Vec3
 	taken    int // 1 us / 0 others / -1 unknown
 	distance f64 // -1 unknown
+	map      u32 // 0 unknown
 }
 
 // HistorySpot groups history rows at one spawn point for the overlay.
@@ -57,7 +60,8 @@ fn csv_int(v int) string {
 
 fn (r HistoryRow) csv_line() string {
 	dist := if r.distance < 0 { '' } else { '${r.distance:.0f}' }
-	return '${r.appeared},${csv_int(r.spawned)},${r.pos.x:.1f},${r.pos.y:.1f},${r.pos.z:.1f},${csv_int(r.taken)},${dist}'
+	map_id := if r.map == 0 { '' } else { r.map.str() }
+	return '${r.appeared},${csv_int(r.spawned)},${r.pos.x:.1f},${r.pos.y:.1f},${r.pos.z:.1f},${csv_int(r.taken)},${dist},${map_id}'
 }
 
 fn parse_csv_int(s string) int {
@@ -76,6 +80,7 @@ fn parse_history_line(line string) ?HistoryRow {
 		pos:      proto.Vec3{f[2].f32(), f[3].f32(), f[4].f32()}
 		taken:    parse_csv_int(f[5])
 		distance: if f.len > 6 && f[6].trim_space() != '' { f[6].f64() } else { -1 }
+		map:      if f.len > 7 { f[7].trim_space().u32() } else { u32(0) }
 	}
 }
 
@@ -150,6 +155,7 @@ fn (mut app App) log_cube(i int, taken int) {
 		pos:      c.pos
 		taken:    taken
 		distance: c.first_distance
+		map:      if c.map == map_left_behind { u32(0) } else { c.map }
 	})
 }
 
@@ -160,9 +166,14 @@ fn (mut app App) log_open_cubes() {
 	}
 }
 
+// regroup_history rebuilds the overlay's dots from the cubes of this map.
+fn (mut app App) regroup_history() {
+	app.history_spots = group_history(app.history.filter(app.on_this_map(it.map)))
+}
+
 // history_changed refreshes the History list and the overlay's dots.
 fn (mut app App) history_changed() {
-	app.history_spots = group_history(app.history)
+	app.regroup_history()
 	C.SendMessageW(app.ctl(.history), lvm_setitemcount, usize(app.history.len), 0)
 	C.InvalidateRect(app.ctl(.history), unsafe { nil }, 0)
 	if app.settings.overlay_history {
@@ -229,7 +240,7 @@ fn (mut app App) init_history_list(list voidptr) {
 	C.SendMessageW(list, lvm_setextendedlistviewstyle, 0, lvs_ex_fullrowselect | lvs_ex_gridlines | lvs_ex_doublebuffer)
 	columns := [['Appeared', '130', 'l'], ['Spawned', '64', 'r'],
 		['X', '76', 'r'], ['Y', '76', 'r'], ['Z', '64', 'r'],
-		['Taken by', '72', 'l'], ['Distance', '70', 'r']]
+		['Taken by', '72', 'l'], ['Distance', '70', 'r'], ['Map', '60', 'r']]
 	for i, c in columns {
 		col := LvColumn{
 			mask: lvcf_fmt | lvcf_width | lvcf_text
@@ -281,6 +292,13 @@ fn (app &App) history_cell(r HistoryRow, col int) string {
 				format_units(r.distance)
 			}
 		}
+		7 {
+			if r.map == 0 {
+				'?'
+			} else {
+				r.map.str()
+			}
+		}
 		else {
 			''
 		}
@@ -289,11 +307,19 @@ fn (app &App) history_cell(r HistoryRow, col int) string {
 
 // history_dispinfo fills a cell of the virtual History list on request.
 fn (app &App) history_dispinfo(mut info NmLvDispInfo) {
-	if info.item.mask & lvif_text == 0 || info.item.item < 0 || info.item.item >= app.history.len
-		|| info.item.text == unsafe { nil } || info.item.text_max <= 0 {
+	if info.item.item < 0 || info.item.item >= app.history.len {
 		return
 	}
-	text := app.history_cell(app.history[info.item.item], info.item.sub_item).to_wide()
+	dispinfo_text(mut info, app.history_cell(app.history[info.item.item], info.item.sub_item))
+}
+
+// dispinfo_text hands a cell's text to a virtual list view.
+fn dispinfo_text(mut info NmLvDispInfo, cell string) {
+	if info.item.mask & lvif_text == 0 || info.item.text == unsafe { nil }
+		|| info.item.text_max <= 0 {
+		return
+	}
+	text := cell.to_wide()
 	unsafe {
 		mut dst := &u16(info.item.text)
 		mut n := 0

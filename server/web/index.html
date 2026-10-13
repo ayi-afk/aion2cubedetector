@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cube Watch map</title>
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
+<style>
+:root {
+  color-scheme: dark;
+  --bg: #0b0f17; --panel: #10161f; --panel-2: #151c27; --line: #1f2a38; --line-2: #2a3647;
+  --text: #e6ecf5; --text-2: #a7b3c6; --muted: #6c7a90; --accent: #f5a623;
+  --good: #3ddc84; --bad: #e66767; --warn: #fab219; --pink: #e0189c;
+  --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --sans: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+.app { display: grid; grid-template: auto 1fr / 300px 1fr; height: 100vh; }
+header { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 9px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+header h1 { margin: 0; font-size: 16px; white-space: nowrap; }
+header h1 span { color: var(--accent); }
+.spacer { flex: 1; }
+select, .btn { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text); padding: 5px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.btn { font-weight: 600; text-decoration: none; }
+.btn:hover, select:hover { border-color: #3a4d68; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+label.lbl { color: var(--muted); font-size: 12px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); display: inline-block; margin-right: 6px; }
+.dot.on { background: var(--good); }
+#conn { color: var(--text-2); font-size: 12px; white-space: nowrap; }
+aside { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto; padding: 10px 12px 30px; }
+aside h2 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin: 16px 0 6px; display: flex; align-items: center; gap: 8px; }
+aside h2:first-child { margin-top: 2px; }
+aside h2 .n { font: 600 11px var(--mono); color: var(--text-2); }
+.group { margin: 2px 0 6px; }
+.group > label { font-weight: 600; }
+.kinds { margin: 2px 0 0 22px; display: grid; gap: 1px; }
+aside label { display: flex; align-items: center; gap: 7px; cursor: pointer; padding: 1px 0; }
+aside label small { color: var(--muted); font-family: var(--mono); margin-left: auto; }
+.sw { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+#listMode { width: 100%; margin-bottom: 4px; }
+.row { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; padding: 5px 6px; border-radius: 7px; cursor: pointer; }
+.row:hover { background: var(--panel-2); }
+.row b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row small { color: var(--muted); font-size: 11.5px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .r { font: 600 12px var(--mono); color: var(--text-2); text-align: right; }
+.row .r.here { color: var(--good); }
+.row .r.soon { color: var(--warn); }
+.pin { width: 10px; height: 10px; border-radius: 50%; }
+.pin.away { opacity: .35; }
+.row.one { padding: 2px 6px; }
+.row.one .nm { display: flex; gap: 7px; align-items: baseline; min-width: 0; }
+.row.one b { flex: none; max-width: 70%; }
+.row.one small { flex: 1; min-width: 0; font-family: var(--mono); font-size: 11px; }
+.row.sel { background: var(--panel-2); }
+.empty { color: var(--muted); font-size: 12.5px; padding: 4px 6px; }
+.st { padding: 4px 6px 8px; font-size: 12.5px; }
+.st b.t { display: block; margin-bottom: 2px; }
+.st .kv { display: flex; justify-content: space-between; color: var(--text-2); padding: 1px 0; }
+.st .kv b { font-family: var(--mono); color: var(--text); font-weight: 600; }
+main { position: relative; overflow: hidden; background: #0d131c; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+canvas.drag { cursor: grabbing; }
+.zoom { position: absolute; right: 12px; bottom: 14px; display: grid; gap: 6px; }
+.zoom button { width: 34px; height: 34px; border-radius: 9px; background: rgba(16,22,31,.9); border: 1px solid var(--line-2); cursor: pointer; font-size: 17px; font-weight: 700; }
+.zoom button:hover { border-color: #3a4d68; }
+#coords { position: absolute; left: 12px; bottom: 12px; font: 12px var(--mono); color: var(--text-2); background: rgba(11,15,23,.78); padding: 3px 8px; border-radius: 7px; pointer-events: none; }
+.tip { position: fixed; z-index: 20; pointer-events: none; background: rgba(13,18,27,.97); border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 14px; min-width: 240px; max-width: 400px; box-shadow: 0 12px 40px rgba(0,0,0,.55); }
+.tip.pinned { pointer-events: auto; border-color: #3a4d68; }
+.tip a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.tip a:hover { text-decoration: underline; }
+.tip .links { display: flex; justify-content: space-between; align-items: center; margin-top: 9px; font-size: 12.5px; }
+.tip .links span { color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.row a { color: var(--muted); text-decoration: none; margin-left: 6px; }
+.row a:hover { color: var(--accent); }
+.tip h3 { margin: 0; font-size: 15px; }
+.tip .sub { color: var(--text-2); font-size: 12.5px; }
+.tip .when { display: flex; justify-content: space-between; font: 12px var(--mono); color: var(--muted); margin: 8px 0 6px; }
+.tip .kv { display: flex; justify-content: space-between; gap: 18px; padding: 1.5px 0; }
+.tip .kv span { color: var(--text-2); }
+.tip .kv b { font-family: var(--mono); }
+.tip .kv.big b { font-size: 15px; }
+.tip .sec { display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .8px; text-transform: uppercase; border-top: 1px solid var(--line); margin-top: 9px; padding-top: 8px; margin-bottom: 4px; }
+.tip .sec b { color: var(--text); font-family: var(--mono); font-size: 12.5px; }
+.tip .head { display: flex; gap: 12px; align-items: center; }
+.tip .av { width: 50px; height: 50px; border-radius: 50%; background: #1b2431 center/cover; border: 2px solid var(--pink); flex: none; }
+.bar { display: grid; grid-template-columns: 78px 1fr 58px; gap: 10px; align-items: center; padding: 1.5px 0; }
+.bar span { color: var(--text-2); }
+.bar i { display: block; height: 6px; border-radius: 4px; background: #1c2532; overflow: hidden; }
+.bar i u { display: block; height: 100%; background: var(--pink); border-radius: 4px; }
+.bar b { font-family: var(--mono); text-align: right; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 18px; }
+.two .kv span em { color: var(--muted); font-style: normal; }
+.ok { color: var(--good); } .warn { color: var(--warn); } .mut { color: var(--muted); }
+#login { position: fixed; inset: 0; background: var(--bg); display: grid; place-items: center; z-index: 50; }
+#login form { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; width: 320px; display: grid; gap: 12px; }
+#login h1 { margin: 0; font-size: 18px; }
+#login input { background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; }
+#login .err { color: var(--bad); font-size: 13px; min-height: 18px; }
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <form id="loginForm">
+    <h1>Cube Watch map</h1>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus>
+    <div class="err" id="loginErr"></div>
+    <button class="btn primary" type="submit">Log in</button>
+  </form>
+</div>
+<div class="app">
+  <header>
+    <h1><span>&#9670;</span> Cube Watch</h1>
+    <label class="lbl" for="mapSel">Map</label><select id="mapSel"></select>
+    <label class="lbl" for="serverSel">Game server</label><select id="serverSel"></select>
+    <div class="spacer"></div>
+    <span id="conn"><span class="dot" id="dot"></span><span id="connText">connecting...</span></span>
+    <button class="btn" id="logout" hidden>Log out</button>
+  </header>
+  <aside>
+    <h2>Show</h2>
+    <div id="filters"></div>
+    <label title="How strongly spots are drawn while nothing is there">Empty spots <input id="fade" type="range" min="5" max="100" step="5" style="flex:1"><small id="fadeText"></small></label>
+    <h2>Game servers</h2>
+    <div id="serverList"></div>
+    <h2>Spots <span class="n" id="spotCount"></span></h2>
+    <select id="listMode" title="What the list is ordered by"></select>
+    <div id="spotList"></div>
+    <h2>Players online <span class="n" id="peopleCount"></span></h2>
+    <div id="peopleList"></div>
+    <h2>Statistics</h2>
+    <div id="stats"><div class="empty">...</div></div>
+  </aside>
+  <main>
+    <canvas id="cv"></canvas>
+    <div id="coords"></div>
+    <div class="zoom"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zfit" title="Whole map">&#9974;</button></div>
+  </main>
+</div>
+<div class="tip" id="tip" hidden></div>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => Math.round(n).toLocaleString('en-US');
+const S = { groups: new Map(), kinds: new Map(), maps: [], spots: new Map(), states: new Map(), people: new Map(), servers: new Map() };
+const ALL = -1;                     // "all game servers" in the selector
+let serverIds = [];                 // game servers something is known about
+// "Lumiel (2304)"; 0 is a client that does not know its game server yet
+const serverName = id => id === ALL ? 'All game servers' : id === 0 ? 'Not known yet' : S.servers.has(id) ? `${S.servers.get(id)} (${id})` : `Server ${id}`;
+// Every game server has a color of its own: the ring around its spots, its
+// players' names, the "Game servers" list. In the order of their ids, so
+// the ones in use never share a color (until there are more than colors).
+const SERVER_COLORS = ['#4cc9f0', '#ff4fa3', '#b8f35a', '#ff9f1c', '#b388ff', '#00e5c0', '#ffe14d', '#ff6b6b', '#6f9bff', '#f4a6ff', '#8ac926', '#ffb4a2'];
+function serverColor(id) {
+  const i = serverIds.filter(x => x !== 0).indexOf(id);
+  return i < 0 ? '#9aa7ba' : SERVER_COLORS[i % SERVER_COLORS.length];
+}
+let skew = 0;                       // server clock - browser clock, seconds
+const now = () => Date.now() / 1000 + skew;
+let mapSel = null, serverSel = null, listMode = localStorage.getItem('cw_list') || 'top';
+let view = { x: 0, y: 0, k: 0.002 };   // world point at the centre, pixels per world unit
+let fitted = false, hover = null, flash = null, hits = [];
+let listHover = null;               // id of the spot the mouse is on in the list
+let pinned = null;                  // the card that stays open after a click
+// Character pages of shugo.gg: /character/global/<game server id>/<name>
+// (its home server: in the Abyss a character is on a game server of its own)
+const home = p => p.home > 0 ? p.home : p.server;
+const shugo = p => home(p) > 0 && !p.name.startsWith('Unknown-') ? `https://shugo.gg/character/global/${home(p)}/${encodeURIComponent(p.name)}` : '';
+const off = new Set(JSON.parse(localStorage.getItem('cw_off') || '[]'));   // hidden kinds / groups
+let fade = +(localStorage.getItem('cw_fade') || 20) / 100;                 // opacity of spots with nothing there
+const images = new Map();           // url -> Image (maps, portraits)
+const mips = new Map();             // map image url -> smaller copies, for drawing zoomed out
+const profiles = new Map();         // person key -> profile or null while loading
+const CLASS_COLOR = { Gladiator: '#e05a4f', Templar: '#5b8def', Assassin: '#9b6bff', Ranger: '#4fbf6b', Sorcerer: '#3cc4d9', Spiritmaster: '#d05ad0', Elementalist: '#d05ad0', Cleric: '#f0c040', Chanter: '#f08a3c' };
+
+// ---- time and text -----------------------------------------------------------------------
+function ago(t) {
+  if (!t) return 'never';
+  const s = Math.max(0, now() - t);
+  if (s < 60) return Math.floor(s) + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm';
+  return Math.floor(s / 86400) + 'd ' + Math.floor(s % 86400 / 3600) + 'h';
+}
+function span(s) {
+  s = Math.abs(s);
+  if (s < 60) return Math.floor(s) + 's';
+  if (s < 3600) return Math.floor(s / 60) + 'm' + (s < 600 ? ' ' + Math.floor(s % 60) + 's' : '');
+  return Math.floor(s / 3600) + 'h ' + Math.floor(s % 3600 / 60) + 'm';
+}
+const clock = t => new Date((t - skew) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const kindOf = s => S.kinds.get(s.cat + ':' + s.tpl);
+const groupOf = s => S.groups.get((kindOf(s) || {}).group);
+const colorOf = s => (groupOf(s) || {}).color || '#8fa3bf';
+const nameOf = s => s.label || (kindOf(s) || {}).name || (s.cat + ' ' + s.tpl);
+// What is at a spot on the selected game server; with "all" the server
+// where something is there wins, else the one where it was taken last.
+function stateOf(s) {
+  if (serverSel !== ALL) return S.states.get(serverSel + ':' + s.id);
+  let best;
+  for (const id of serverIds) {
+    const st = S.states.get(id + ':' + s.id);
+    if (st && (!best || (st.present && !best.present) || (st.present === best.present && st.taken_at > best.taken_at))) best = st;
+  }
+  return best;
+}
+const onServer = p => serverSel === ALL || p.server === serverSel;
+// A spot is on a game server once something was seen at it there; "all
+// game servers" has every spot, the ones of an imported history too.
+const spotOnServer = s => serverSel === ALL || S.states.has(serverSel + ':' + s.id);
+function shown(s) {
+  const k = kindOf(s);
+  return !s.hidden && s.map === mapSel && spotOnServer(s) && !off.has('k:' + s.cat + ':' + s.tpl) && !(k && off.has('g:' + k.group));
+}
+// What is going on at a spot on the selected server, in words.
+function stateText(s) {
+  const st = stateOf(s);
+  if (!st) return 'known from an imported history only';
+  const where = serverSel === ALL ? serverName(st.server) + ': ' : '';
+  if (st.present) return where + 'here now' + (st.created ? ', spawned ' + ago(st.created) + ' ago' : '');
+  const next = st.expected ? ', next ' + (st.expected > now() ? 'in ' + span(st.expected - now()) : 'due') : '';
+  return where + (st.taken_at ? `taken ${ago(st.taken_at)} ago${st.taken_by ? ' by ' + st.taken_by : ''}` : 'gone') + next;
+}
+// What the spot list can be ordered by (the numbers of the Statistics box,
+// per spot): which spots it keeps, the value it sorts by (smallest first)
+// and the text on the right.
+const LIST = {
+  top: { name: 'Most detected', val: s => -s.spawns, text: s => '&times;' + s.spawns, none: 'No spots on this map for this game server yet.' },
+  taken: { name: 'Most taken', keep: s => s.takes > 0, val: s => -s.takes, text: s => '&times;' + s.takes, none: 'Nothing was seen taken here yet.' },
+  here: { name: 'Here now (longest first)', keep: s => (stateOf(s) || {}).present, val: s => stateOf(s).created, text: s => stateOf(s).created ? ago(stateOf(s).created) : 'here', cls: 'here', none: 'Nothing is known to be there right now.' },
+  next: { name: 'Next up', keep: s => { const st = stateOf(s); return st && !st.present && st.expected; }, val: s => stateOf(s).expected, text: s => { const left = stateOf(s).expected - now(); return left > 0 ? span(left) : 'due'; }, cls: 'soon', none: 'No respawn is expected yet.' },
+  pickup: { name: 'Avg. time until taken (shortest first)', keep: s => s.pickup > 0, val: s => s.pickup, text: s => span(s.pickup), none: 'Not known for any spot yet.' },
+  respawn: { name: 'Typical respawn (shortest first)', keep: s => s.respawn > 0, val: s => s.respawn, text: s => span(s.respawn), none: 'Not known for any spot yet.' },
+};
+if (!LIST[listMode]) listMode = 'top';
+
+// ---- data ---------------------------------------------------------------------------------
+function applyInit(m) {
+  skew = m.now - Date.now() / 1000;
+  S.servers = new Map((m.servers || []).map(x => [x.id, x.name]));
+  S.groups = new Map(m.groups.map(g => [g.id, g]));
+  S.kinds = new Map(m.kinds.map(k => [k.cat + ':' + k.tpl, k]));
+  S.maps = m.maps;
+  S.spots = new Map(m.spots.map(s => [s.id, s]));
+  S.states = new Map(m.states.map(s => [s.server + ':' + s.spot_id, s]));
+  S.people = new Map(m.people.map(p => [p.key, p]));
+  rebuildSelectors();
+  rebuildFilters();
+  refreshLists();
+  draw();
+  loadStats();
+}
+function onMessage(m) {
+  if (m.t === 'init') return applyInit(m);
+  if (m.now) skew = m.now - Date.now() / 1000;
+  if (m.t === 'state') {
+    S.spots.set(m.spot.id, m.spot);
+    S.states.set(m.state.server + ':' + m.state.spot_id, m.state);
+    if (!m.state.present) flash = { id: m.spot.id, until: Date.now() + 2500 };
+    rebuildSelectors();
+  } else if (m.t === 'people') {
+    let fresh = false;
+    for (const person of m.people) {
+      const old = S.people.get(person.key);
+      S.people.set(person.key, person);
+      // the profile was read again when what the marker shows of it changed
+      if (!old || old.cls !== person.cls || old.level !== person.level || old.portrait !== person.portrait) profiles.delete(person.key);
+      fresh = fresh || !old;
+    }
+    if (fresh) rebuildSelectors();
+  } else if (m.t === 'person_gone') {
+    S.people.delete(m.key);
+  }
+  refreshLists();
+  draw();
+}
+// Position batches come as plain lines: "pos,<now>" then "<key>,<map>,<x>,<y>,<z>" per player.
+function onLines(text) {
+  const lines = text.split('\n'), head = lines[0].split(',');
+  if (head[0] !== 'pos') return;
+  const t = +head[1];
+  skew = t - Date.now() / 1000;
+  for (let i = 1; i < lines.length; i++) {
+    const f = lines[i].split(','), p = S.people.get(f[0]);
+    if (!p) continue;   // not introduced yet: it comes with the next "people" message
+    p.map = +f[1]; p.x = +f[2]; p.y = +f[3]; p.z = +f[4]; p.seen_at = t;
+  }
+  draw();
+}
+function rebuildSelectors() {
+  const maps = new Map(S.maps.map(m => [m.id, m.name]));
+  for (const s of S.spots.values()) if (!maps.has(s.map)) maps.set(s.map, 'Map ' + s.map);
+  for (const p of S.people.values()) if (!maps.has(p.map)) maps.set(p.map, 'Map ' + p.map);
+  const servers = new Map();
+  for (const st of S.states.values()) servers.set(st.server, (servers.get(st.server) || 0) + 1);
+  for (const p of S.people.values()) servers.set(p.server, (servers.get(p.server) || 0) + 1000);
+  if (mapSel === null || !maps.has(mapSel)) {
+    const p = [...S.people.values()][0];
+    mapSel = p ? p.map : (S.maps[0] ? S.maps[0].id : [...maps.keys()][0] ?? 0);
+    fitted = false;
+  }
+  serverIds = [...servers.keys()].sort((a, b) => a - b);
+  if (serverSel === null || (serverSel !== ALL && !servers.has(serverSel))) {
+    // the game server most players are on; "not known yet" only when there is nothing else
+    serverSel = [...servers.entries()].sort((a, b) => (a[0] === 0) - (b[0] === 0) || b[1] - a[1]).map(e => e[0])[0] ?? 0;
+  }
+  fill($('mapSel'), [...maps.entries()], mapSel);
+  fill($('serverSel'), [[ALL, serverName(ALL)], ...serverIds.map(id => [id, serverName(id)])], serverSel);
+}
+function fill(sel, entries, value) {
+  const html = entries.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('');
+  if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+  sel.value = String(value);
+}
+function rebuildFilters() {
+  const groups = [...S.groups.values()].sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name));
+  groups.push({ id: 0, name: 'Other', color: '#8fa3bf' });
+  let html = '';
+  for (const g of groups) {
+    const kinds = [...S.kinds.values()].filter(k => (S.groups.has(k.group) ? k.group : 0) === g.id).sort((a, b) => a.name.localeCompare(b.name));
+    if (!kinds.length) continue;
+    html += `<div class="group"><label><input type="checkbox" data-f="g:${g.id}" ${off.has('g:' + g.id) ? '' : 'checked'}><span class="sw" style="background:${esc(g.color)}"></span>${esc(g.name)}</label><div class="kinds">`;
+    for (const k of kinds) {
+      const key = 'k:' + k.cat + ':' + k.tpl;
+      const n = [...S.spots.values()].filter(s => s.cat === k.cat && s.tpl === k.tpl && s.map === mapSel && spotOnServer(s)).length;
+      html += `<label><input type="checkbox" data-f="${key}" ${off.has(key) ? '' : 'checked'}>${esc(k.name)}<small>${n}</small></label>`;
+    }
+    html += '</div></div>';
+  }
+  $('filters').innerHTML = html || '<div class="empty">Nothing is tracked yet.</div>';
+}
+$('fade').value = fade * 100; $('fadeText').textContent = Math.round(fade * 100) + '%';
+$('fade').addEventListener('input', e => {
+  fade = +e.target.value / 100;
+  $('fadeText').textContent = e.target.value + '%';
+  localStorage.setItem('cw_fade', e.target.value);
+  draw();
+});
+$('filters').addEventListener('change', e => {
+  const f = e.target.dataset.f;
+  if (!f) return;
+  e.target.checked ? off.delete(f) : off.add(f);
+  localStorage.setItem('cw_off', JSON.stringify([...off]));
+  refreshLists();
+  draw();
+});
+function refreshLists() {
+  // the game servers: color, name, what is there now / the spots known, on this map
+  $('serverList').innerHTML = serverIds.map(id => {
+    const mine = [...S.states.values()].filter(st => st.server === id && (S.spots.get(st.spot_id) || {}).map === mapSel);
+    return `<div class="row one${id === serverSel ? ' sel' : ''}" data-server="${id}" title="Spots with something there now / spots known on this map. Click to show only this game server, again for all."><span class="pin" style="background:${serverColor(id)}"></span><div class="nm"><b>${esc(serverName(id))}</b></div><div class="r">${mine.filter(st => st.present).length} / ${mine.length}</div></div>`;
+  }).join('') || '<div class="empty">No game server reported anything yet.</div>';
+  let spots = [...S.spots.values()].filter(shown);
+  $('spotCount').textContent = spots.length;
+  const mode = LIST[listMode];
+  if (mode.keep) spots = spots.filter(mode.keep);
+  spots.sort((a, b) => mode.val(a) - mode.val(b) || a.id - b.id);
+  // one line per spot: the dot (full while something is there, ringed in its
+  // game server's color), the place, the number the list is ordered by
+  $('spotList').innerHTML = spots.slice(0, 40).map(s => {
+    const st = stateOf(s);
+    return `<div class="row one" data-spot="${s.id}" title="${esc(stateText(s))}"><span class="pin${st && st.present ? '' : ' away'}" style="background:${esc(colorOf(s))}${st ? ';box-shadow:0 0 0 2px ' + serverColor(st.server) : ''}"></span><div class="nm"><b>${esc(nameOf(s))}</b><small>${fmt(s.x)}, ${fmt(s.y)}</small></div><div class="r ${mode.cls || ''}">${mode.text(s)}</div></div>`;
+  }).join('') || '<div class="empty">' + mode.none + '</div>';
+  const people = [...S.people.values()].filter(onServer).sort((a, b) => a.name.localeCompare(b.name));
+  $('peopleCount').textContent = people.length;
+  $('peopleList').innerHTML = people.map(p => `<div class="row" data-person="${esc(p.key)}"><span class="pin" style="background:${CLASS_COLOR[p.cls] || '#8fa3bf'}"></span><div><b>${esc(p.name)}${shugo(p) ? `<a href="${shugo(p)}" target="_blank" rel="noopener" title="Open on shugo.gg">&#8599;</a>` : ''}</b><small>${esc(p.cls || '...')}${p.level ? ' · Lv ' + p.level : ''}${serverSel === ALL ? ` · <span style="color:${serverColor(p.server)}">${esc(serverName(p.server))}</span>` : ''}${p.map !== mapSel ? ' · map ' + p.map : ''}${p.alts && p.alts.length ? ' · also ' + esc(p.alts.join(', ')) : ''}</small></div><div class="r">${ago(p.seen_at)}</div></div>`).join('') || '<div class="empty">Nobody is online on this server.</div>';
+}
+fill($('listMode'), Object.entries(LIST).map(([k, m]) => [k, m.name]), listMode);
+$('listMode').addEventListener('change', e => {
+  listMode = e.target.value;
+  localStorage.setItem('cw_list', listMode);
+  refreshLists();
+});
+// the spot under the mouse in the list pulses on the map
+$('spotList').addEventListener('mouseover', e => {
+  const row = e.target.closest('[data-spot]'), id = row ? +row.dataset.spot : null;
+  if (id !== listHover) { listHover = id; draw(); }
+});
+$('spotList').addEventListener('mouseleave', () => { if (listHover !== null) { listHover = null; draw(); } });
+$('spotList').addEventListener('click', e => {
+  const row = e.target.closest('[data-spot]');
+  if (!row) return;
+  const s = S.spots.get(+row.dataset.spot);
+  focusOn(s.x, s.y);
+  flash = { id: s.id, until: Date.now() + 2500 };
+});
+$('peopleList').addEventListener('click', e => {
+  const row = e.target.closest('[data-person]');
+  if (!row || e.target.closest('a')) return;
+  const p = S.people.get(row.dataset.person);
+  if (p.map !== mapSel) { mapSel = p.map; $('mapSel').value = String(mapSel); rebuildFilters(); refreshLists(); }
+  focusOn(p.x, p.y);
+});
+$('mapSel').addEventListener('change', e => { mapSel = +e.target.value; fitted = false; rebuildFilters(); refreshLists(); draw(); });
+function selectServer(id) {
+  serverSel = id;
+  $('serverSel').value = String(id);
+  rebuildFilters(); refreshLists(); draw(); loadStats();
+}
+$('serverSel').addEventListener('change', e => selectServer(+e.target.value));
+$('serverList').addEventListener('click', e => {
+  const row = e.target.closest('[data-server]');
+  if (row) selectServer(+row.dataset.server === serverSel ? ALL : +row.dataset.server);
+});
+
+// ---- statistics (asked from the server now and then) --------------------------------------
+let statsFor = null;
+async function loadStats() {
+  if (serverSel === null) return;
+  const r = await fetch('/api/stats?server=' + serverSel).catch(() => null);
+  if (!r || !r.ok) return;
+  const d = await r.json();
+  statsFor = serverSel;
+  const line = (k, v) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`;
+  $('stats').innerHTML = d.kinds.sort((a, b) => a.name.localeCompare(b.name)).map(k => `<div class="st"><b class="t">${esc(k.name)}</b>
+    ${line('Places known', k.spots)}${line('There right now', k.here)}
+    ${line('Seen / taken, 24 h', k.seen_day + ' / ' + k.taken_day)}${line('Seen / taken, all time', k.seen_all + ' / ' + k.taken_all)}
+    ${line('Avg. time until taken', k.pickup ? span(k.pickup) : '-')}${line('Typical respawn', k.respawn ? span(k.respawn) : '-')}</div>`).join('')
+    + (d.takers.length ? '<div class="st"><b class="t">Most taken, 7 days</b>' + d.takers.map(t => line(esc(t.who), '&times;' + t.n)).join('') + '</div>' : '')
+    || '<div class="empty">Nothing yet.</div>';
+}
+setInterval(loadStats, 30000);
+
+// ---- the map ------------------------------------------------------------------------------
+const cv = $('cv'), g = cv.getContext('2d');
+let W = 0, H = 0, dpr = 1;
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  W = r.width; H = r.height;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  draw();
+}
+new ResizeObserver(resize).observe(cv);
+const X = wx => (wx - view.x) * view.k + W / 2;
+const Y = wy => (wy - view.y) * view.k + H / 2;
+const mapDef = () => S.maps.find(m => m.id === mapSel);
+function image(url) {
+  let img = images.get(url);
+  if (!img) {
+    img = new Image();
+    img.referrerPolicy = 'no-referrer';
+    img.onload = draw;
+    img.src = url;
+    images.set(url, img);
+  }
+  return img.complete && img.naturalWidth ? img : null;
+}
+// A map image is large; scaling all of it down on every frame is slow, so
+// half and quarter size copies are made once and the closest one is drawn.
+function mapImage(url, pixelScale) {
+  const img = image(url);
+  if (!img) return null;
+  if (!mips.has(url)) {
+    mips.set(url, []);
+    if (window.createImageBitmap) {
+      for (const f of [0.5, 0.25]) {
+        createImageBitmap(img, { resizeWidth: Math.round(img.naturalWidth * f), resizeHeight: Math.round(img.naturalHeight * f), resizeQuality: 'high' })
+          .then(bmp => { mips.get(url).push({ f, bmp }); mips.get(url).sort((a, b) => a.f - b.f); draw(); }).catch(() => {});
+      }
+    }
+  }
+  for (const m of mips.get(url)) if (m.f >= pixelScale) return m.bmp;
+  return img;
+}
+// World rectangle of the selected map: its image, or what is known to be on it.
+function extent() {
+  const m = mapDef();
+  if (m && m.sx && m.sy) return [-m.ox / m.sx, -m.oy / m.sy, (m.width - m.ox) / m.sx, (m.height - m.oy) / m.sy];
+  let b = [Infinity, Infinity, -Infinity, -Infinity];
+  const add = (x, y) => { b = [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)]; };
+  for (const s of S.spots.values()) if (s.map === mapSel) add(s.x, s.y);
+  for (const p of S.people.values()) if (p.map === mapSel) add(p.x, p.y);
+  if (b[0] === Infinity) return [-50000, -50000, 50000, 50000];
+  const pad = Math.max(b[2] - b[0], b[3] - b[1], 20000) * 0.15;
+  return [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
+}
+function fit() {
+  const [x0, y0, x1, y1] = extent();
+  view.x = (x0 + x1) / 2; view.y = (y0 + y1) / 2;
+  view.k = Math.min(W / (x1 - x0), H / (y1 - y0)) * 0.98;
+  fitted = true;
+}
+function focusOn(x, y) {
+  view.x = x; view.y = y;
+  view.k = Math.max(view.k, 0.02);
+  draw();
+}
+function zoomAt(px, py, factor) {
+  const wx = (px - W / 2) / view.k + view.x, wy = (py - H / 2) / view.k + view.y;
+  view.k = Math.min(Math.max(view.k * factor, 0.0004), 2);
+  view.x = wx - (px - W / 2) / view.k; view.y = wy - (py - H / 2) / view.k;
+  draw();
+}
+let queued = false;
+function draw() { if (!queued) { queued = true; requestAnimationFrame(paint); } }
+function paint() {
+  queued = false;
+  if (!W || !H) return;
+  if (!fitted) fit();
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#0d131c';
+  g.fillRect(0, 0, W, H);
+  const m = mapDef();
+  const img = m && m.image ? mapImage(m.image, view.k / m.sx) : null;
+  if (img) {
+    g.imageSmoothingQuality = 'medium';
+    g.drawImage(img, X(-m.ox / m.sx), Y(-m.oy / m.sy), m.width / m.sx * view.k, m.height / m.sy * view.k);
+    g.fillStyle = 'rgba(8,11,17,.18)';   // calm the picture down a little under the markers
+    g.fillRect(0, 0, W, H);
+  } else {
+    grid();
+  }
+  hits = [];
+  let pulsing = false;
+  const t = now();
+  const spots = [...S.spots.values()].filter(shown);
+  // absent ones first, so the ones that are there end up on top
+  spots.sort((a, b) => ((stateOf(a) || {}).present ? 1 : 0) - ((stateOf(b) || {}).present ? 1 : 0));
+  for (const s of spots) {
+    const x = X(s.x), y = Y(s.y);
+    if (x < -30 || y < -30 || x > W + 30 || y > H + 30) continue;
+    const st = stateOf(s), color = colorOf(s), isHover = (hover && hover.spot === s) || listHover === s.id;
+    // the outer ring says which game server the state is of
+    const serverRing = () => { g.lineWidth = 3; g.strokeStyle = serverColor(st.server); g.beginPath(); g.arc(x, y, r + 3.5, 0, 7); g.stroke(); };
+    const r = (st && st.present ? 7 : 5.5) + (isHover ? 2 : 0);
+    if (st && st.present) {
+      g.globalAlpha = 0.28;
+      g.fillStyle = color;
+      g.beginPath(); g.arc(x, y, r + 6 + 2 * Math.sin(Date.now() / 400), 0, 7); g.fill();
+      g.globalAlpha = 1;
+      g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+      g.lineWidth = 2; g.strokeStyle = '#fff'; g.stroke();
+      serverRing();
+    } else {
+      // nothing is there: a faint mark of the spot
+      g.globalAlpha = isHover ? Math.max(0.75, fade) : fade;
+      g.fillStyle = color;
+      g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+      g.lineWidth = 1.5; g.strokeStyle = '#fff'; g.stroke();
+      if (st) serverRing();
+      g.globalAlpha = 1;
+      if (st && st.expected && view.k > 0.004) {
+        const left = st.expected - t;
+        label(left > 0 ? span(left) : 'due', x, y + r + 11, left > 0 && left < 120 ? '#fab219' : '#cfd8e6', 11);
+      }
+    }
+    // a growing ring: once after a change or a click in the list, again and again under the mouse
+    const flashing = flash && flash.id === s.id && Date.now() < flash.until;
+    if (flashing || isHover) {
+      const f = flashing ? 1 - (flash.until - Date.now()) / 2500 : Date.now() % 1200 / 1200;
+      g.globalAlpha = 1 - f; g.strokeStyle = '#fff'; g.lineWidth = 2;
+      g.beginPath(); g.arc(x, y, r + 4 + 30 * f, 0, 7); g.stroke();
+      g.globalAlpha = 1;
+      pulsing = pulsing || isHover;
+    }
+    hits.push({ x, y, r: r + 5, spot: s });
+  }
+  for (const p of S.people.values()) {
+    if (p.map !== mapSel || !onServer(p)) continue;
+    const x = X(p.x), y = Y(p.y);
+    if (x < -40 || y < -40 || x > W + 40 || y > H + 40) continue;
+    const r = hover && hover.person === p ? 17 : 15, color = CLASS_COLOR[p.cls] || '#8fa3bf';
+    const pic = p.portrait ? image(p.portrait) : null;
+    g.save();
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.closePath();
+    g.fillStyle = '#1b2431'; g.fill();
+    if (pic) { g.clip(); g.drawImage(pic, x - r, y - r, 2 * r, 2 * r); }
+    g.restore();
+    if (!pic) { g.fillStyle = '#fff'; g.font = '700 12px "Segoe UI", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(p.name.slice(0, 2).toUpperCase(), x, y + 0.5); }
+    g.lineWidth = 2.5; g.strokeStyle = color;
+    g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
+    if (p.cls) {   // class badge
+      g.fillStyle = color; g.beginPath(); g.arc(x + r * 0.72, y + r * 0.72, 7, 0, 7); g.fill();
+      g.fillStyle = '#10161f'; g.font = '800 9px "Segoe UI", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(p.cls[0], x + r * 0.72, y + r * 0.72 + 0.5);
+    }
+    label(p.name, x, y + r + 12, serverSel === ALL ? serverColor(p.server) : '#fff', 12);
+    hits.push({ x, y, r: r + 3, person: p });
+  }
+  // the glow of what is there and the flash of a change are animated, gently
+  if (pulsing || (flash && Date.now() < flash.until)) setTimeout(draw, 40);
+  else if (spots.some(s => (stateOf(s) || {}).present)) setTimeout(draw, 150);
+}
+function label(text, x, y, color, size) {
+  g.font = `600 ${size}px "Segoe UI", sans-serif`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineWidth = 3; g.strokeStyle = 'rgba(8,11,17,.85)';
+  g.strokeText(text, x, y);
+  g.fillStyle = color;
+  g.fillText(text, x, y);
+}
+function grid() {
+  const step = [1000, 2000, 5000, 10000, 20000, 50000, 100000].find(s => s * view.k >= 60) || 200000;
+  g.strokeStyle = '#17202c'; g.lineWidth = 1; g.fillStyle = '#44536a'; g.font = '11px ui-monospace, Consolas, monospace';
+  g.textAlign = 'left'; g.textBaseline = 'top';
+  const x0 = Math.floor((view.x - W / 2 / view.k) / step) * step, y0 = Math.floor((view.y - H / 2 / view.k) / step) * step;
+  for (let x = x0; X(x) < W; x += step) { g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), H); g.stroke(); g.fillText(fmt(x), X(x) + 3, 3); }
+  for (let y = y0; Y(y) < H; y += step) { g.beginPath(); g.moveTo(0, Y(y)); g.lineTo(W, Y(y)); g.stroke(); g.fillText(fmt(y), 3, Y(y) + 3); }
+}
+
+// ---- mouse ----------------------------------------------------------------------------------
+let drag = null;
+function hitAt(px, py) {
+  let best = null;
+  for (const h of hits) {
+    const d = Math.hypot(h.x - px, h.y - py);
+    if (d <= h.r && (!best || d < best.d || (h.person && !best.h.person))) best = { h, d };
+  }
+  return best ? best.h : null;
+}
+cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }; cv.setPointerCapture(e.pointerId); cv.classList.add('drag'); if (!pinned) hideTip(); });
+cv.addEventListener('pointerup', e => {
+  const click = drag && !drag.moved;
+  drag = null; cv.classList.remove('drag');
+  if (!click) return;
+  // a click keeps the card of what was clicked open (its links work then); a click elsewhere closes it
+  const r = cv.getBoundingClientRect(), h = hitAt(e.clientX - r.left, e.clientY - r.top);
+  pinned = h;
+  tip.classList.toggle('pinned', !!h);
+  h ? showTip(h, e.clientX, e.clientY) : hideTip();
+});
+addEventListener('keydown', e => { if (e.key === 'Escape' && pinned) { pinned = null; tip.classList.remove('pinned'); hideTip(); } });
+cv.addEventListener('pointermove', e => {
+  const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  if (drag) {
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true;
+    if (!drag.moved) return;
+    view.x = drag.vx - (e.clientX - drag.x) / view.k; view.y = drag.vy - (e.clientY - drag.y) / view.k;
+    return draw();
+  }
+  $('coords').textContent = `X ${fmt((px - W / 2) / view.k + view.x)}   Y ${fmt((py - H / 2) / view.k + view.y)}`;
+  const h = hitAt(px, py);
+  if ((h && h.spot) !== (hover && hover.spot) || (h && h.person) !== (hover && hover.person)) { hover = h; draw(); }
+  if (pinned) return;
+  h ? showTip(h, e.clientX, e.clientY) : hideTip();
+});
+cv.addEventListener('pointerleave', () => { hover = null; if (!pinned) hideTip(); $('coords').textContent = ''; draw(); });
+cv.addEventListener('wheel', e => { e.preventDefault(); const r = cv.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+cv.addEventListener('dblclick', e => { const r = cv.getBoundingClientRect(); zoomAt(e.clientX - r.left, e.clientY - r.top, 2); });
+$('zin').onclick = () => zoomAt(W / 2, H / 2, 1.6);
+$('zout').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.6);
+$('zfit').onclick = () => { fitted = false; draw(); };
+
+// ---- tooltips ---------------------------------------------------------------------------------
+const tip = $('tip');
+function hideTip() { tip.hidden = true; }
+function showTip(h, cx, cy) {
+  tip.innerHTML = h.spot ? spotTip(h.spot) : personTip(h.person);
+  tip.hidden = false;
+  const w = tip.offsetWidth, hh = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(cx + 18, innerWidth - w - 8)) + 'px';
+  tip.style.top = Math.max(8, Math.min(cy + 18, innerHeight - hh - 8)) + 'px';
+}
+const kv = (k, v, cls = '') => `<div class="kv ${cls}"><span>${k}</span><b>${v}</b></div>`;
+function spotTip(s) {
+  const st = stateOf(s), k = kindOf(s) || {}, grp = groupOf(s);
+  let state, next = '<span class="mut">unknown</span>';
+  if (!st) state = '<span class="mut">known from an imported history only</span>';
+  else if (st.present) { state = `<span class="ok">here now</span>`; next = '-'; }
+  else state = (st.taken_by ? 'taken by <b>' + esc(st.taken_by) + '</b>' : 'gone') + ` ${ago(st.taken_at)} ago`;
+  if (st && !st.present && st.expected) {
+    const left = st.expected - now();
+    next = left > 0 ? `~${clock(st.expected)} <span class="warn">(in ${span(left)})</span>` : `<span class="warn">due since ${span(left)}</span>`;
+  }
+  return `<h3><span class="sw" style="display:inline-block;background:${esc(colorOf(s))}"></span> ${esc(nameOf(s))}</h3>
+    <div class="sub">${esc(grp ? grp.name : 'Other')} · ${esc(s.cat)} ${s.tpl}${s.label && k.name ? ' · ' + esc(k.name) : ''}</div>
+    <div class="when"><span>X ${fmt(s.x)}  Y ${fmt(s.y)}  Z ${fmt(s.z)}</span></div>
+    ${st ? kv('Game server', `<span style="color:${serverColor(st.server)}">${esc(serverName(st.server))}</span>`) : ''}${kv('State', state)}
+    ${st && st.present ? kv('Spawned', st.created ? ago(st.created) + ' ago' : '?') + kv('Last seen', ago(st.seen_at) + ' ago') : ''}
+    ${st && !st.present && st.taken_at ? kv('Last taken', clock(st.taken_at) + (st.taken_by ? ' · ' + esc(st.taken_by) : '')) : ''}
+    ${kv('Next spawn', next)}
+    <div class="sec"><span>History</span><b>&times;${s.spawns}</b></div>
+    ${kv('Detected here', '&times;' + s.spawns)}${kv('Times taken', s.takes)}
+    ${kv('Avg. time until taken', s.pickup ? span(s.pickup) : '<span class="mut">not known yet</span>')}
+    ${kv('Typical respawn', s.respawn ? span(s.respawn) + (k.respawn ? ' <span class="mut">(set)</span>' : '') : '<span class="mut">not known yet</span>')}`;
+}
+function personTip(p) {
+  if (!profiles.has(p.key)) {
+    profiles.set(p.key, null);
+    fetch('/api/profile?key=' + encodeURIComponent(p.key)).then(r => r.ok ? r.json() : false).then(d => {
+      // not there yet: ask again the next time the card is shown
+      d === false ? setTimeout(() => profiles.get(p.key) === false && profiles.delete(p.key), 3000) : 0;
+      profiles.set(p.key, d);
+      const shownFor = pinned || hover;
+      if (shownFor && shownFor.person && shownFor.person.key === p.key && !tip.hidden) tip.innerHTML = personTip(S.people.get(p.key) || p);
+    });
+  }
+  const d = profiles.get(p.key);
+  const head = `<div class="head"><div class="av" style="${p.portrait ? `background-image:url('${esc(p.portrait)}');` : ''}border-color:${CLASS_COLOR[p.cls] || 'var(--pink)'}"></div><div><h3>${esc(p.name)}</h3>
+    <div class="sub">${esc(p.server ? serverName(home(p)) : 'game server not known yet')}${p.home > 0 ? ' · now on ' + esc(serverName(p.server)) : ''}${p.cls ? ' · ' + esc(p.cls) : ''}${p.level ? ' · Lv ' + p.level : ''}</div></div></div>
+    <div class="when"><span>X ${fmt(p.x)}  Y ${fmt(p.y)}  Z ${fmt(p.z)}</span><span>${ago(p.seen_at)} ago</span></div>${p.alts && p.alts.length ? kv('Same player', esc(p.alts.join(', '))) : ''}`;
+  const link = shugo(p) ? `<a href="${shugo(p)}" target="_blank" rel="noopener">Open on shugo.gg &#8599;</a>` : '<span></span>';
+  const hint = pinned ? '' : '<span>click to keep open</span>';
+  if (d === null || d === undefined) return head + '<div class="mut">Loading the profile...</div>';
+  if (d === false) return head + `<div class="mut">${p.name.startsWith('Unknown-') ? 'This client does not know its character yet (it learns the name when the character changes zone).' : 'The profile is being read from the official site - a few seconds.'}</div><div class="links">${link}${hint}</div>`;
+  const short = n => n.replace(/\s*\[.*$/, ''), god = n => (n.match(/\[(.*)\]/) || [])[1] || '';
+  const w = d.weapon || {};
+  return head + kv('Combat Power', fmt(d.cp), 'big') + kv('Item Level', fmt(d.item_level), 'big') + kv('Level', d.level)
+    + kv('Stigmas &Sigma; (levels)', d.stigmas.reduce((a, s) => a + s.v, 0))
+    + (w.name ? `<div class="sec"><span>Weapon</span><b>+${w.enchant}${w.max_enchant ? '/' + w.max_enchant : ''} ${'&#9670;'.repeat(w.exceed || 0)}</b></div>${kv(esc(w.name), esc(w.grade))}${w.attack ? kv('Attack', esc(w.attack)) : ''}` : '')
+    + (d.boards.length ? `<div class="sec"><span>Daevanion</span><b>${d.boards.reduce((a, b) => a + b.o, 0)}</b></div>` + d.boards.map(b => `<div class="bar"><span>${esc(b.n)}</span><i><u style="width:${b.t ? 100 * b.o / b.t : 0}%"></u></i><b>${b.o}/${b.t}</b></div>`).join('') : '')
+    + (d.gods.length ? `<div class="sec"><span>God stats</span><b>${d.gods.reduce((a, b) => a + b.v, 0)}</b></div><div class="two">` + d.gods.map(x => `<div class="kv"><span>${esc(short(x.n))} <em>${esc(god(x.n))}</em></span><b>${x.v}</b></div>`).join('') + '</div>' : '')
+    + (d.stigmas.length ? `<div class="sec"><span>Stigmas</span><b>${d.stigmas.length}</b></div><div class="two">` + d.stigmas.slice(0, 12).map(x => kv(esc(x.n), x.v)).join('') + '</div>' : '')
+    + `<div class="links">${link}<span>profile read ${ago(d.fetched_at)} ago</span></div>`;
+}
+
+// ---- connection ---------------------------------------------------------------------------------
+let ws = null, pingTimer = null;
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/view');
+  ws.onopen = () => {
+    $('dot').classList.add('on'); $('connText').textContent = 'live';
+    ws.send('{"t":"hello"}');
+    pingTimer = setInterval(() => ws.readyState === 1 && ws.send('{"t":"ping"}'), 25000);
+  };
+  ws.onmessage = e => { try { e.data[0] === '{' ? onMessage(JSON.parse(e.data)) : onLines(e.data); } catch (err) { console.error(err); } };
+  ws.onclose = () => {
+    clearInterval(pingTimer);
+    $('dot').classList.remove('on'); $('connText').textContent = 'offline - reconnecting...';
+    setTimeout(start, 3000);
+  };
+}
+async function start() {
+  let me;
+  try { me = await (await fetch('/api/me')).json(); } catch (e) { return setTimeout(start, 3000); }
+  $('logout').hidden = !me.password_set;
+  if (!me.authed) { $('login').hidden = false; $('pw').focus(); return; }
+  $('login').hidden = true;
+  connect();
+}
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const r = await fetch('/api/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value }) });
+  if (r.ok) { $('pw').value = ''; $('loginErr').textContent = ''; return start(); }
+  $('loginErr').textContent = (await r.json().catch(() => ({}))).error || 'Login failed';
+});
+$('logout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.reload(); };
+setInterval(() => { refreshLists(); draw(); }, 1000);   // countdowns
+start();
+</script>
+</body>
+</html>
