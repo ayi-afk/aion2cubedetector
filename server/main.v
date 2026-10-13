@@ -15,6 +15,9 @@ import server.world
 // characters are and what they see; browsers get a live map of it.
 
 const app_version = '1.0.0'
+// When this executable was compiled (unix time); the map page shows it in
+// its corner, so one can tell which build is running.
+const app_build = @BUILD_TIMESTAMP.i64()
 
 const index_html = $embed_file('web/index.html').to_string()
 const admin_html = $embed_file('web/admin.html').to_string()
@@ -368,7 +371,7 @@ pub fn (mut app App) map_img(mut ctx Context, name string) Result {
 // ---- map page API -----------------------------------------------------------------------
 
 pub fn (mut app App) api_me(mut ctx Context) Result {
-	return ctx.ok_json('{"authed":${app.user_ok(ctx)},"password_set":${app.password != ''},"version":"${app_version}"}')
+	return ctx.ok_json('{"authed":${app.user_ok(ctx)},"password_set":${app.password != ''},"version":"${app_version}","build":${app_build}}')
 }
 
 pub fn (mut app App) api_login(mut ctx Context) Result {

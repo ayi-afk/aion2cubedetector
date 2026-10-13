@@ -67,6 +67,7 @@ canvas.drag { cursor: grabbing; }
 .zoom { position: absolute; right: 12px; bottom: 14px; display: grid; gap: 6px; }
 .zoom button { width: 34px; height: 34px; border-radius: 9px; background: rgba(16,22,31,.9); border: 1px solid var(--line-2); cursor: pointer; font-size: 17px; font-weight: 700; }
 .zoom button:hover { border-color: #3a4d68; }
+#build { position: absolute; right: 12px; bottom: 1px; font: 10px var(--mono); color: rgba(150,160,176,.5); pointer-events: none; }
 #coords { position: absolute; left: 12px; bottom: 12px; font: 12px var(--mono); color: var(--text-2); background: rgba(11,15,23,.78); padding: 3px 8px; border-radius: 7px; pointer-events: none; }
 .tip { position: fixed; z-index: 20; pointer-events: none; background: rgba(13,18,27,.97); border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 14px; min-width: 240px; max-width: 400px; box-shadow: 0 12px 40px rgba(0,0,0,.55); }
 .tip.pinned { pointer-events: auto; border-color: #3a4d68; }
@@ -137,6 +138,7 @@ canvas.drag { cursor: grabbing; }
   <main>
     <canvas id="cv"></canvas>
     <div id="coords"></div>
+    <div id="build"></div>
     <div class="zoom"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zfit" title="Whole map">&#9974;</button></div>
   </main>
 </div>
@@ -729,6 +731,10 @@ async function start() {
   let me;
   try { me = await (await fetch('/api/me')).json(); } catch (e) { return setTimeout(start, 3000); }
   $('logout').hidden = !me.password_set;
+  if (me.build) {   // "build 2026-10-13 1405": when the backend was compiled, in this PC's time
+    const d = new Date(me.build * 1000), two = n => String(n).padStart(2, '0');
+    $('build').textContent = `build ${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}${two(d.getMinutes())}`;
+  }
   if (!me.authed) { $('login').hidden = false; $('pw').focus(); return; }
   $('login').hidden = true;
   connect();

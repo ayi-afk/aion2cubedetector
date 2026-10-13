@@ -112,6 +112,8 @@ server {
   spot to jump there; while the mouse is on a spot - in the list or on the
   map - a growing ring marks it on the map.
 - Wheel / double-click / buttons to zoom, drag to move.
+- The faint "build 2026-10-13 1405" in the bottom right corner is when the
+  running backend was compiled (shown in the viewer's local time).
 
 ### When will it respawn?
 
