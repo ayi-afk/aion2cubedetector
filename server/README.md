@@ -140,6 +140,13 @@ again there is no estimate.
   region the id belongs to (its second digit), preferring the server with
   the same last two digits. The card then says "Lumiel (2304) - now on
   Server 3304", and the shugo.gg link goes to the home server.
+- For the same reason a character seen on a game server without a name
+  is not listed as another character: it is counted to the character of
+  that name the same installation has on a named game server (of several,
+  the one whose id ends in the same two digits, else the one seen last).
+  "All characters" in the admin panel and the "also ..." of the map show
+  each character once; rows written before are merged when the backend
+  starts. A game server the admin gave a name counts as named.
 - Every Cube Watch installation has a random id (made on its first run,
   kept in its settings). Characters played from the same installation are
   shown as belonging together ("also ..."); viewers only see the first six

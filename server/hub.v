@@ -113,9 +113,13 @@ mut:
 	custom_names  map[int]string // names the admin gave (ids the list does not have, or better names)
 	// Characters played from the same Cube Watch installation belong to one
 	// player: installation id -> person keys -> name, and back.
-	owned        map[string]map[string]string
-	owner_of     map[string]string
-	char_seen    map[string]i64 // person key -> when that character last reported
+	owned     map[string]map[string]string
+	owner_of  map[string]string
+	char_seen map[string]i64 // person key -> when that character last reported
+	// A character seen on a game server without a name (the Abyss, an
+	// instance) is listed under its named server: person key there -> the
+	// key it is listed under (merge_instances).
+	home_of      map[string]string
 	wss_client   &websocket.Server = unsafe { nil }
 	wss_view     &websocket.Server = unsafe { nil }
 	peers_mu     &sync.Mutex       = sync.new_mutex() // after `mu` when both are needed
@@ -163,6 +167,9 @@ fn new_hub(db sqlite.DB, client_key string) !&Hub {
 		h.owner_of[key] = r.vals[0]
 		h.owned[r.vals[0]][key] = r.vals[2]
 		h.char_seen[key] = r.vals[3].i64()
+	}
+	for install in h.owned.keys() {
+		h.merge_instances(install)
 	}
 	h.wss_client = websocket.new_server(.ip, 0, '', logger: quiet)
 	h.wss_view = websocket.new_server(.ip, 0, '', logger: quiet)
@@ -664,7 +671,7 @@ fn (mut h Hub) on_client_text(id string, text string) {
 					ses.noted = key
 					h.sessions[id] = ses
 				}
-				h.char_seen[key] = now
+				h.char_seen[h.home_of[key] or { key }] = now
 			}
 			if known {
 				h.moved_people[key] = true
@@ -817,9 +824,10 @@ fn (mut h Hub) flush_loop() {
 		for key in gone {
 			// when its player's character was last there
 			install := h.owner_of[key] or { continue }
-			name := h.owned[install][key] or { continue }
+			home := h.home_of[key] or { key }
+			name := h.owned[install][home] or { continue }
 			q(h.db, 'UPDATE owners SET last_seen=? WHERE install=? AND server=? AND name=?',
-				h.char_seen[key].str(), install, key.all_before(':'), name) or {
+				h.char_seen[home].str(), install, home.all_before(':'), name) or {
 				eprintln('[db] ${err}')
 			}
 		}
@@ -1066,16 +1074,99 @@ fn (mut h Hub) note_owner(install string, key string, server int, name string, n
 	q(h.db, 'INSERT INTO owners(install,server,name,last_seen) VALUES(?,?,?,?)
 		ON CONFLICT(install,server,name) DO UPDATE SET last_seen=excluded.last_seen',
 		install, server.str(), name, now.str()) or { eprintln('[db] ${err}') }
+	h.merge_instances(install)
+}
+
+// server_named: the official list or the admin has a name for this game server.
+fn (h &Hub) server_named(id int) bool {
+	return id in h.server_names || id in h.custom_names
+}
+
+// home_server is the game server a character of an installation is listed
+// under. In shared zones (the Abyss, instances) the game puts a character on
+// a game server of its own, one without a name: that is not another
+// character. It belongs to the character of the same name the installation
+// has on a named server - of several, the one whose id ends in the same two
+// digits (3304 -> 2304), else the one seen last - or, while there is none,
+// to the server its profile was found on. Call with `mu` held.
+fn (h &Hub) home_server(install string, server int, name string) int {
+	if h.server_named(server) {
+		return server
+	}
+	mut best := 0
+	mut best_same := false
+	mut best_seen := i64(-1)
+	for key, other in h.owned[install] or {
+		map[string]string{}
+	} {
+		id := key.all_before(':').int()
+		if other.to_lower() != name.to_lower() || !h.server_named(id) {
+			continue
+		}
+		same := id % 100 == server % 100
+		seen := h.char_seen[key]
+		if best == 0 || (same && !best_same) || (same == best_same && seen > best_seen) {
+			best, best_same, best_seen = id, same, seen
+		}
+	}
+	if best != 0 {
+		return best
+	}
+	if prof := h.profiles[world.person_key(server, name)] {
+		if prof.server != server && h.server_named(prof.server) {
+			return prof.server
+		}
+	}
+	return server
+}
+
+// merge_instances folds an installation's characters on game servers without
+// a name into the same character on its named server (home_server), in
+// memory and in the database. Call with `mu` held.
+fn (mut h Hub) merge_instances(install string) {
+	mut chars := h.owned[install].clone()
+	mut changed := false
+	for key, name in h.owned[install].clone() {
+		server := key.all_before(':').int()
+		home := h.home_server(install, server, name)
+		if home == server {
+			continue
+		}
+		target := world.person_key(home, name)
+		seen := if h.char_seen[key] > h.char_seen[target] {
+			h.char_seen[key]
+		} else {
+			h.char_seen[target]
+		}
+		chars.delete(key)
+		if target !in chars {
+			chars[target] = name
+		}
+		h.char_seen[target] = seen
+		h.char_seen.delete(key)
+		h.home_of[key] = target
+		h.owner_of[target] = install
+		changed = true
+		q(h.db, 'DELETE FROM owners WHERE install=? AND server=? AND name=?', install,
+			server.str(), name) or { eprintln('[db] ${err}') }
+		q(h.db, 'INSERT INTO owners(install,server,name,last_seen) VALUES(?,?,?,?)
+			ON CONFLICT(install,server,name) DO UPDATE SET last_seen=max(last_seen, excluded.last_seen)',
+			install, home.str(), chars[target], seen.str()) or { eprintln('[db] ${err}') }
+	}
+	if changed {
+		h.owned[install] = chars.clone()
+	}
 }
 
 // alts_of lists the other characters of the same player.
 fn (h &Hub) alts_of(key string) []string {
 	install := h.owner_of[key] or { return [] }
+	own := h.home_of[key] or { key }
 	mut out := []string{}
 	for k, name in h.owned[install] or {
 		map[string]string{}
 	} {
-		if k != key {
+		if k != own {
 			out << name
 		}
 	}

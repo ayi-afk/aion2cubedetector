@@ -546,6 +546,12 @@ pub fn (mut app App) admin_overview(mut ctx Context) Result {
 	for key, p in h.w.people {
 		out.people << h.person_out(key, p)
 	}
+	// a character that is in the Abyss or an instance right now is online
+	// under the game server it is listed under
+	mut online := map[string]bool{}
+	for key, _ in h.w.people {
+		online[h.home_of[key] or { key }] = true
+	}
 	for install, chars in h.owned {
 		for key, name in chars {
 			prof := h.profiles[key] or { Profile{} }
@@ -554,7 +560,7 @@ pub fn (mut app App) admin_overview(mut ctx Context) Result {
 				server:    key.all_before(':').int()
 				name:      name
 				last_seen: h.char_seen[key]
-				online:    key in h.w.people
+				online:    key in online
 				cls:       prof.cls
 				level:     prof.level
 			}
