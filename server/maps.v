@@ -15,6 +15,7 @@ import x.json2
 
 const maps_json = $embed_file('assets/maps.json').to_string()
 const map_asmodians_jpg = $embed_file('assets/map_asmodians.jpg')
+const map_lower_reshanta_jpg = $embed_file('assets/map_lower_reshanta.jpg')
 
 struct MapDef {
 pub mut:
@@ -40,6 +41,7 @@ struct MapsFile {
 fn map_image(name string) ?string {
 	return match name {
 		'map_asmodians.jpg' { map_asmodians_jpg.to_string() }
+		'map_lower_reshanta.jpg' { map_lower_reshanta_jpg.to_string() }
 		else { none }
 	}
 }

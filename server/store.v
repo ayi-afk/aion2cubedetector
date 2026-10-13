@@ -118,7 +118,6 @@ fn open_db(path string) !sqlite.DB {
 
 // Map ids whose map is known (the ones with an image are in assets/maps.json).
 const known_maps = {
-	20:     'Abyss'
 	600001: 'Caro Cave'
 }
 

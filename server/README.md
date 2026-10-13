@@ -85,7 +85,7 @@ server {
   have shows as "Server 3304" until the admin names it. "Not known yet" is
   the bucket of clients that have not learned their game server (see "Who
   is who" below).
-- A map without an image (the Abyss, a cave, any new map id) is a map of
+- A map without an image (a cave, any new map id) is a map of
   its own, drawn on a grid: nothing from it is ever put on another map's
   image.
 - Spots: solid with a glow while something is there; faint while empty (the
@@ -184,10 +184,10 @@ Four tabs: **Players**, **Tracked things**, **Maps**, **Server & database**.
 
 ## Maps
 
-Map images are compiled in; `assets/maps.json` lists them (one so far).
-Maps without an image are kept in the database and managed in the admin
-panel; a new database starts with the two known by id (Abyss = 20, Caro
-Cave = 600001).
+Map images are compiled in; `assets/maps.json` lists them: "Asmodian lands"
+(map id 1110) and "Lower Reshanta" (the Abyss, map id 20). Maps without an
+image are kept in the database and managed in the admin panel; a new
+database starts with the one known by id (Caro Cave = 600001).
 
 ```json
 { "key": "asmodians", "name": "Asmodian lands", "image": "map_asmodians.jpg",
@@ -202,6 +202,11 @@ under the first one. The `default` map also takes reports whose map id is not
 known (a client started in the middle of a session knows it only after the
 next zone change). Map ids and calibration can be changed in the admin panel
 without a rebuild (kept in the database).
+
+Lower Reshanta was calibrated by fitting the scale and offsets to the 172
+NPCs Cube Watch had seen there, so that they stand on the islands (162 do;
+about 1 pixel per metre). It is good to a few pixels where those NPCs are
+and less certain in the far west of the map, where few were seen.
 
 The Asmodian map was calibrated from two in-game positions (Neglected
 Crematorium and the Steel Hammer Mercenary camp, about 335,000 units apart)

@@ -17,6 +17,23 @@
         {"place": "Neglected Crematorium (teleport statue)", "world_x": -169762, "world_y": -95786, "pixel_x": 962, "pixel_y": 1426},
         {"place": "Steel Hammer Mercenary camp (south edge of the round platform)", "world_x": 164993, "world_y": 5247, "pixel_x": 3740, "pixel_y": 2270}
       ]
+    },
+    {
+      "key": "lower_reshanta",
+      "name": "Lower Reshanta",
+      "image": "map_lower_reshanta.jpg",
+      "width": 1898,
+      "height": 1432,
+      "map_ids": [20],
+      "sx": 0.01007,
+      "sy": 0.01007,
+      "ox": 784.0,
+      "oy": 714.0,
+      "calibration_note": "Fitted to the 172 NPCs Cube Watch had seen on map 20 (objects export of 2026-10-13): with these values 162 of them stand on an island. Checked with the two positions below, read off the in-game map; the player may have moved since the position was reported, so they only have to be close.",
+      "calibration": [
+        {"place": "Latesran Eastern Root, courtyard of the main island", "world_x": 53449, "world_y": -54074, "pixel_x": 1322, "pixel_y": 169},
+        {"place": "Latesran Eastern Root, west edge of the round platform", "world_x": 41297, "world_y": -43958, "pixel_x": 1200, "pixel_y": 271}
+      ]
     }
   ]
 }
