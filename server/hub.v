@@ -1158,17 +1158,26 @@ fn (mut h Hub) merge_instances(install string) {
 	}
 }
 
-// alts_of lists the other characters of the same player.
+// alts_of lists the other characters of the same player, each name once.
+// The same name on other game servers is not another character: in shared
+// zones the game puts a character on a game server of its own, and those
+// that could not be folded into a named server (merge_instances) are still
+// separate rows.
 fn (h &Hub) alts_of(key string) []string {
 	install := h.owner_of[key] or { return [] }
 	own := h.home_of[key] or { key }
+	own_name := (h.owned[install][own] or { key.all_after(':') }).to_lower()
+	mut seen := map[string]bool{}
 	mut out := []string{}
 	for k, name in h.owned[install] or {
 		map[string]string{}
 	} {
-		if k != own {
-			out << name
+		lower := name.to_lower()
+		if k == own || lower == own_name || lower in seen {
+			continue
 		}
+		seen[lower] = true
+		out << name
 	}
 	out.sort()
 	return out
