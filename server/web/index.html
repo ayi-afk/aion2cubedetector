@@ -64,6 +64,15 @@ aside label small { color: var(--muted); font-family: var(--mono); margin-left: 
 main { position: relative; overflow: hidden; background: #0d131c; }
 canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 canvas.drag { cursor: grabbing; }
+canvas.selecting { cursor: crosshair; }
+.zoom button.on { background: var(--accent); border-color: var(--accent); color: #1a1205; }
+.area { background: var(--panel-2); border: 1px solid #3a4d68; border-radius: 9px; padding: 7px 9px; margin: 2px 0 8px; font-size: 12.5px; }
+.area .t { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.area .t b { font-size: 13px; }
+.area .t button { background: none; border: 1px solid var(--line-2); border-radius: 6px; color: var(--text-2); cursor: pointer; padding: 1px 8px; font-size: 12px; }
+.area .t button:hover { color: var(--text); border-color: #3a4d68; }
+.area .kv { display: flex; justify-content: space-between; color: var(--text-2); }
+.area .kv b { font-family: var(--mono); color: var(--text); }
 .zoom { position: absolute; right: 12px; bottom: 14px; display: grid; gap: 6px; }
 .zoom button { width: 34px; height: 34px; border-radius: 9px; background: rgba(16,22,31,.9); border: 1px solid var(--line-2); cursor: pointer; font-size: 17px; font-weight: 700; }
 .zoom button:hover { border-color: #3a4d68; }
@@ -129,6 +138,7 @@ canvas.drag { cursor: grabbing; }
     <div id="serverList"></div>
     <h2>Spots <span class="n" id="spotCount"></span></h2>
     <select id="listMode" title="What the list is ordered by"></select>
+    <div class="area" id="areaBox" hidden></div>
     <div id="spotList"></div>
     <h2>Players online <span class="n" id="peopleCount"></span></h2>
     <div id="peopleList"></div>
@@ -139,7 +149,7 @@ canvas.drag { cursor: grabbing; }
     <canvas id="cv"></canvas>
     <div id="coords"></div>
     <div id="build"></div>
-    <div class="zoom"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zfit" title="Whole map">&#9974;</button></div>
+    <div class="zoom"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zfit" title="Whole map">&#9974;</button><button id="zsel" title="Select an area: drag a rectangle over the map (or hold Shift and drag)">&#9634;</button></div>
   </main>
 </div>
 <div class="tip" id="tip" hidden></div>
@@ -361,12 +371,14 @@ function refreshLists() {
   const mode = LIST[listMode];
   if (mode.keep) spots = spots.filter(mode.keep);
   spots.sort((a, b) => mode.val(a) - mode.val(b) || a.id - b.id);
+  renderArea();
+  if (area) spots = spots.filter(inArea);
   // one line per spot: the dot (full while something is there, ringed in its
   // game server's color), the place, the number the list is ordered by
-  $('spotList').innerHTML = spots.slice(0, 40).map(s => {
+  $('spotList').innerHTML = spots.slice(0, area ? 300 : 40).map(s => {
     const st = stateOf(s);
     return `<div class="row one" data-spot="${s.id}" title="${esc(stateText(s))}"><span class="pin${st && st.present ? '' : ' away'}" style="background:${esc(colorOf(s))}${st ? ';box-shadow:0 0 0 2px ' + serverColor(st.server) : ''}"></span><div class="nm"><b>${esc(nameOf(s))}</b><small>${fmt(s.x)}, ${fmt(s.y)}</small></div><div class="r ${mode.cls || ''}">${mode.text(s)}</div></div>`;
-  }).join('') || '<div class="empty">' + mode.none + '</div>';
+  }).join('') || '<div class="empty">' + (area ? 'Nothing of that in the selected area.' : mode.none) + '</div>';
   const people = [...S.people.values()].filter(onServer).sort((a, b) => a.name.localeCompare(b.name));
   $('peopleCount').textContent = people.length;
   $('peopleList').innerHTML = people.map(p => `<div class="row" data-person="${esc(p.key)}"><span class="pin" style="background:${CLASS_COLOR[p.cls] || '#8fa3bf'}"></span><div><b>${esc(p.name)}${shugo(p) ? `<a href="${shugo(p)}" target="_blank" rel="noopener" title="Open on shugo.gg">&#8599;</a>` : ''}</b><small>${esc(p.cls || '...')}${p.level ? ' · Lv ' + p.level : ''}${serverSel === ALL ? ` · <span style="color:${serverColor(p.server)}">${esc(serverName(p.server))}</span>` : ''}${p.map !== mapSel ? ' · map ' + p.map : ''}${p.alts && p.alts.length ? ' · also ' + esc(p.alts.join(', ')) : ''}</small></div><div class="r">${ago(p.seen_at)}</div></div>`).join('') || '<div class="empty">Nobody is online on this server.</div>';
@@ -389,6 +401,11 @@ $('spotList').addEventListener('click', e => {
   const s = S.spots.get(+row.dataset.spot);
   focusOn(s.x, s.y);
   flash = { id: s.id, until: Date.now() + 2500 };
+  // and its card, pinned next to it (Esc or a click on the map closes it)
+  const r = cv.getBoundingClientRect();
+  pinned = { spot: s };
+  tip.classList.add('pinned');
+  showTip(pinned, r.left + X(s.x), r.top + Y(s.y));
 });
 $('peopleList').addEventListener('click', e => {
   const row = e.target.closest('[data-person]');
@@ -562,6 +579,7 @@ function paint() {
     }
     hits.push({ x, y, r: r + 5, spot: s });
   }
+  drawArea(spots);
   for (const p of S.people.values()) {
     if (p.map !== mapSel || !onServer(p)) continue;
     const x = X(p.x), y = Y(p.y);
@@ -615,10 +633,23 @@ function hitAt(px, py) {
   }
   return best ? best.h : null;
 }
-cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }; cv.setPointerCapture(e.pointerId); cv.classList.add('drag'); if (!pinned) hideTip(); });
+cv.addEventListener('pointerdown', e => {
+  drag = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false, select: selecting || e.shiftKey };
+  cv.setPointerCapture(e.pointerId);
+  cv.classList.add(drag.select ? 'selecting' : 'drag');
+  if (!pinned) hideTip();
+});
 cv.addEventListener('pointerup', e => {
-  const click = drag && !drag.moved;
+  const click = drag && !drag.moved, sel = drag && drag.select;
   drag = null; cv.classList.remove('drag');
+  if (sel) {
+    // the rectangle becomes the selected area; a click without dragging clears it
+    if (!click && dragRect) setArea(dragRect);
+    else if (click) setArea(null);
+    dragRect = null;
+    setSelecting(false);
+    return;
+  }
   if (!click) return;
   // a click keeps the card of what was clicked open (its links work then); a click elsewhere closes it
   const r = cv.getBoundingClientRect(), h = hitAt(e.clientX - r.left, e.clientY - r.top);
@@ -626,12 +657,22 @@ cv.addEventListener('pointerup', e => {
   tip.classList.toggle('pinned', !!h);
   h ? showTip(h, e.clientX, e.clientY) : hideTip();
 });
-addEventListener('keydown', e => { if (e.key === 'Escape' && pinned) { pinned = null; tip.classList.remove('pinned'); hideTip(); } });
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (pinned) { pinned = null; tip.classList.remove('pinned'); hideTip(); }
+  else if (selecting) setSelecting(false);
+  else if (area) setArea(null);
+});
 cv.addEventListener('pointermove', e => {
   const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
   if (drag) {
     if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true;
     if (!drag.moved) return;
+    if (drag.select) {
+      const x0 = drag.x - r.left, y0 = drag.y - r.top;
+      dragRect = toWorld(Math.min(x0, px), Math.min(y0, py), Math.max(x0, px), Math.max(y0, py));
+      return draw();
+    }
     view.x = drag.vx - (e.clientX - drag.x) / view.k; view.y = drag.vy - (e.clientY - drag.y) / view.k;
     return draw();
   }
@@ -647,6 +688,70 @@ cv.addEventListener('dblclick', e => { const r = cv.getBoundingClientRect(); zoo
 $('zin').onclick = () => zoomAt(W / 2, H / 2, 1.6);
 $('zout').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.6);
 $('zfit').onclick = () => { fitted = false; draw(); };
+
+// ---- selecting an area ------------------------------------------------------------------------
+// Drag a rectangle (after the button, or with Shift held): the spots in it
+// are the selection - the list shows only those, with a summary.
+let selecting = false, dragRect = null;
+let area = null;                    // { map, x0, y0, x1, y1 } in world units
+const toWorld = (ax, ay, bx, by) => ({ map: mapSel, x0: (ax - W / 2) / view.k + view.x, y0: (ay - H / 2) / view.k + view.y, x1: (bx - W / 2) / view.k + view.x, y1: (by - H / 2) / view.k + view.y });
+const inRect = (a, s) => a && s.map === a.map && s.x >= a.x0 && s.x <= a.x1 && s.y >= a.y0 && s.y <= a.y1;
+const inArea = s => inRect(area, s);
+function setSelecting(on) {
+  selecting = on;
+  $('zsel').classList.toggle('on', on);
+  cv.classList.toggle('selecting', on);
+}
+$('zsel').onclick = () => setSelecting(!selecting);
+function setArea(a) {
+  // too small to be meant (a slip of the mouse)
+  area = a && Math.abs(X(a.x1) - X(a.x0)) > 6 && Math.abs(Y(a.y1) - Y(a.y0)) > 6 ? a : null;
+  refreshLists();
+  draw();
+}
+function renderArea() {
+  const box = $('areaBox');
+  if (area && area.map !== mapSel) area = null;
+  box.hidden = !area;
+  if (!area) return;
+  const spots = [...S.spots.values()].filter(s => shown(s) && inArea(s));
+  const states = spots.map(stateOf).filter(Boolean);
+  const here = states.filter(st => st.present).length;
+  const next = states.filter(st => !st.present && st.expected).map(st => st.expected).sort((a, b) => a - b)[0];
+  const kinds = new Map();
+  for (const s of spots) kinds.set(nameOf(s), (kinds.get(nameOf(s)) || 0) + 1);
+  const line = (k, v) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`;
+  box.innerHTML = `<div class="t"><b>Selected area</b><span><button id="areaFit" title="Zoom to the area">Zoom</button> <button id="areaClear" title="Esc">Clear</button></span></div>
+    ${line('Spots', spots.length)}${line('Something there now', here)}
+    ${line('Next expected', next ? (next > now() ? 'in ' + span(next - now()) : 'due') : '-')}
+    ${line('Detected / taken', spots.reduce((t, s) => t + s.spawns, 0) + ' / ' + spots.reduce((t, s) => t + s.takes, 0))}
+    ${[...kinds.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => line(esc(n), '&times;' + c)).join('')}`;
+}
+$('areaBox').addEventListener('click', e => {
+  if (e.target.id === 'areaClear') setArea(null);
+  if (e.target.id === 'areaFit' && area) {
+    view.x = (area.x0 + area.x1) / 2; view.y = (area.y0 + area.y1) / 2;
+    view.k = Math.min(W / (area.x1 - area.x0), H / (area.y1 - area.y0)) * 0.85;
+    draw();
+  }
+});
+// The rectangle being dragged or the selected area, and a ring around the
+// spots in it.
+function drawArea(spots) {
+  const a = dragRect || area;
+  if (!a || a.map !== mapSel) return;
+  const x0 = X(a.x0), y0 = Y(a.y0), w = X(a.x1) - x0, h = Y(a.y1) - y0;
+  g.fillStyle = 'rgba(245,166,35,.07)';
+  g.fillRect(x0, y0, w, h);
+  g.setLineDash([6, 4]); g.lineWidth = 1.5; g.strokeStyle = '#f5a623';
+  g.strokeRect(x0, y0, w, h);
+  g.setLineDash([]);
+  g.strokeStyle = 'rgba(245,166,35,.9)'; g.lineWidth = 1.5;
+  for (const s of spots) {
+    if (!inRect(a, s)) continue;
+    g.beginPath(); g.arc(X(s.x), Y(s.y), 10, 0, 7); g.stroke();
+  }
+}
 
 // ---- tooltips ---------------------------------------------------------------------------------
 const tip = $('tip');

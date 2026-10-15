@@ -146,7 +146,7 @@ It shows:
   and a red X where one was just taken - as on the minimap overlay;
 - what the backend knows to be there right now on your game server: a full
   dot with a white rim, in the color of its group;
-- "History": every place something was seen at before - small faint dots,
+- "History": every place something was seen at before - small grey dots,
   with the time until the next one ("12m", "due") where the backend expects
   one. Without a backend the places of this PC's own history files;
 - "Players": the other Cube Watch players on your game server and map, with

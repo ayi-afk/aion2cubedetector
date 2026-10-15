@@ -109,8 +109,14 @@ server {
   players online. The spot list has one line per spot (dot, place and one
   number) and a menu for what it is ordered by: most detected, most taken,
   here now, next up, average time until taken, typical respawn. Click a
-  spot to jump there; while the mouse is on a spot - in the list or on the
-  map - a growing ring marks it on the map.
+  spot to jump there and open its card next to it (Esc closes it); while
+  the mouse is on a spot - in the list or on the map - a growing ring marks
+  it on the map.
+- Select an area: the square button under the zoom buttons (or Shift held
+  down), then drag a rectangle over the map. The spot list then shows only
+  the spots in it, with a summary on top (how many, how many with something
+  there now, the next expected respawn, detected / taken, per kind);
+  "Zoom" fits the map to it, "Clear" or Esc drops it.
 - Wheel / double-click / buttons to zoom, drag to move.
 - The faint "build 2026-10-13 1405" in the bottom right corner is when the
   running backend was compiled (shown in the viewer's local time).

@@ -314,7 +314,8 @@ fn (app &App) draw_overlay2(c Canvas, w int, h int) {
 			if !view.shows(x, y) {
 				continue
 			}
-			c.fill_circle(x, y, small, 0x90000000 | s.color)
+			// greyed out: a place, not a cube
+			c.fill_circle(x, y, small, 0x90a4adba)
 			c.stroke_circle(x, y, small, 1, 0x80000000)
 			left := f64(s.expected) - hub_now
 			if s.expected > 0 && left > -overlay2_due_seconds && font.font != unsafe { nil } {
@@ -332,7 +333,7 @@ fn (app &App) draw_overlay2(c Canvas, w int, h int) {
 			for s in app.history_spots {
 				x, y := view.at(s.x, s.y)
 				if view.shows(x, y) {
-					c.fill_rect(x - small, y - small, 2 * small, 2 * small, spot_color(s))
+					c.fill_rect(x - small, y - small, 2 * small, 2 * small, 0x90a4adba)
 				}
 			}
 		}
