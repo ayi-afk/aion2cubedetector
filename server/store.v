@@ -96,6 +96,10 @@ fn open_db(path string) !sqlite.DB {
 	for stmt in schema {
 		q(db, stmt)!
 	}
+	// added later: the address a character's client last connected from
+	if q(db, "SELECT count(*) FROM pragma_table_info('owners') WHERE name='ip'")![0].vals[0] == '0' {
+		q(db, "ALTER TABLE owners ADD COLUMN ip TEXT NOT NULL DEFAULT ''")!
+	}
 	// Each known kind is added once: what the admin renames, moves or
 	// deletes afterwards stays that way. (A database from before this list
 	// was counted already has the first one, the cube.)

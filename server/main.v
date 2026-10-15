@@ -480,7 +480,8 @@ struct SessionOut {
 	last    i64
 	near_at i64
 	near    []wire.NearItem
-	map     u32 // the map id the client reports (0 not known yet)
+	map     u32    // the map id the client reports (0 not known yet)
+	ip      string // where it connects from (behind a proxy: what the proxy saw)
 }
 
 // CharacterOut is a character Cube Watch was ever run with, online or not.
@@ -492,6 +493,7 @@ struct CharacterOut {
 	online    bool
 	cls       string
 	level     int
+	ip        string // where its client last connected from
 }
 
 struct OverviewOut {
@@ -565,12 +567,13 @@ pub fn (mut app App) admin_overview(mut ctx Context) Result {
 				online:    key in online
 				cls:       prof.cls
 				level:     prof.level
+				ip:        h.char_ip[key] or { '' }
 			}
 		}
 	}
 	for sid, s in h.sessions {
 		if s.authed {
-			out.sessions << SessionOut{sid, owner_tag(s.install), s.server, s.name, s.since, s.last, s.near_at, s.near, s.map}
+			out.sessions << SessionOut{sid, owner_tag(s.install), s.server, s.name, s.since, s.last, s.near_at, s.near, s.map, s.ip}
 		}
 	}
 	h.mu.unlock()

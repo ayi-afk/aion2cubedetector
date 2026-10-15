@@ -103,7 +103,8 @@ mut:
 	// player: installation id -> person keys -> name, and back.
 	owned     map[string]map[string]string
 	owner_of  map[string]string
-	char_seen map[string]i64 // person key -> when that character last reported
+	char_seen map[string]i64    // person key -> when that character last reported
+	char_ip   map[string]string // person key -> the address its client last connected from
 	// A character seen on a game server without a name (the Abyss, an
 	// instance) is listed under its named server: person key there -> the
 	// key it is listed under (merge_instances).
@@ -163,11 +164,12 @@ fn new_hub(db sqlite.DB, client_key string, db_path string) !&Hub {
 		h.server_names[id] = name
 	}
 	h.custom_names = meta_names(db, 'server_names_custom')
-	for r in q(db, 'SELECT install,server,name,last_seen FROM owners ORDER BY last_seen')! {
+	for r in q(db, 'SELECT install,server,name,last_seen,ip FROM owners ORDER BY last_seen')! {
 		key := world.person_key(r.vals[1].int(), r.vals[2])
 		h.owner_of[key] = r.vals[0]
 		h.owned[r.vals[0]][key] = r.vals[2]
 		h.char_seen[key] = r.vals[3].i64()
+		h.char_ip[key] = r.vals[4]
 	}
 	for install in h.owned.keys() {
 		h.merge_instances(install)
@@ -520,7 +522,7 @@ fn (mut h Hub) on_client_text(id string, text string) {
 				// written down when a session starts with the character (and
 				// again when it leaves the map, see flush_loop)
 				if ses.noted != key {
-					h.note_owner(ses.install, key, ses.server, name, now)
+					h.note_owner(ses.install, key, ses.server, name, now, ses.ip)
 					ses.noted = key
 					h.sessions[id] = ses
 				}
@@ -994,15 +996,16 @@ fn owner_tag(install string) string {
 	return if install.len >= 6 { install[..6] } else { install }
 }
 
-// note_owner remembers that a character is played from an installation.
-// Call with `mu` held.
-fn (mut h Hub) note_owner(install string, key string, server int, name string, now i64) {
+// note_owner remembers that a character is played from an installation,
+// and from which address. Call with `mu` held.
+fn (mut h Hub) note_owner(install string, key string, server int, name string, now i64, ip string) {
 	h.owner_of[key] = install
 	h.owned[install][key] = name
 	h.char_seen[key] = now
-	q(h.db, 'INSERT INTO owners(install,server,name,last_seen) VALUES(?,?,?,?)
-		ON CONFLICT(install,server,name) DO UPDATE SET last_seen=excluded.last_seen',
-		install, server.str(), name, now.str()) or { eprintln('[db] ${err}') }
+	h.char_ip[key] = ip
+	q(h.db, 'INSERT INTO owners(install,server,name,last_seen,ip) VALUES(?,?,?,?,?)
+		ON CONFLICT(install,server,name) DO UPDATE SET last_seen=excluded.last_seen, ip=excluded.ip',
+		install, server.str(), name, now.str(), ip) or { eprintln('[db] ${err}') }
 	h.merge_instances(install)
 }
 
@@ -1062,25 +1065,25 @@ fn (mut h Hub) merge_instances(install string) {
 			continue
 		}
 		target := world.person_key(home, name)
-		seen := if h.char_seen[key] > h.char_seen[target] {
-			h.char_seen[key]
-		} else {
-			h.char_seen[target]
-		}
+		newer := h.char_seen[key] > h.char_seen[target]
+		seen := if newer { h.char_seen[key] } else { h.char_seen[target] }
+		ip := if newer { h.char_ip[key] or { '' } } else { h.char_ip[target] or { '' } }
 		chars.delete(key)
 		if target !in chars {
 			chars[target] = name
 		}
 		h.char_seen[target] = seen
 		h.char_seen.delete(key)
+		h.char_ip[target] = ip
+		h.char_ip.delete(key)
 		h.home_of[key] = target
 		h.owner_of[target] = install
 		changed = true
 		q(h.db, 'DELETE FROM owners WHERE install=? AND server=? AND name=?', install,
 			server.str(), name) or { eprintln('[db] ${err}') }
-		q(h.db, 'INSERT INTO owners(install,server,name,last_seen) VALUES(?,?,?,?)
-			ON CONFLICT(install,server,name) DO UPDATE SET last_seen=max(last_seen, excluded.last_seen)',
-			install, home.str(), chars[target], seen.str()) or { eprintln('[db] ${err}') }
+		q(h.db, 'INSERT INTO owners(install,server,name,last_seen,ip) VALUES(?,?,?,?,?)
+			ON CONFLICT(install,server,name) DO UPDATE SET last_seen=max(last_seen, excluded.last_seen), ip=excluded.ip',
+			install, home.str(), chars[target], seen.str(), ip) or { eprintln('[db] ${err}') }
 	}
 	if changed {
 		h.owned[install] = chars.clone()

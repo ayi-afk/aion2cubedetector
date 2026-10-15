@@ -147,7 +147,7 @@ details > summary { cursor: pointer; color: var(--text-2); margin: 12px 0 8px; f
 
     <div class="card" data-tab="players">
       <h2>Online now <span class="n" id="clientCount"></span></h2>
-      <div class="tablewrap"><table><thead><tr><th>Character</th><th title="The map id the game gave this client. Type the name of the map the character is on and press Enter: the id gets that name">Is on map</th><th title="The same for all characters played from one Cube Watch installation">Player</th><th>Game server</th><th>Class</th><th class="num">X</th><th class="num">Y</th><th>Connected</th><th>Last message</th><th></th></tr></thead><tbody id="clients"></tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th>Character</th><th title="The map id the game gave this client. Type the name of the map the character is on and press Enter: the id gets that name">Is on map</th><th title="The same for all characters played from one Cube Watch installation">Player</th><th>Game server</th><th>Class</th><th class="num">X</th><th class="num">Y</th><th>Connected</th><th>Last message</th><th title="Where the client connects from. Behind a reverse proxy on the same machine: the address the proxy saw (X-Forwarded-For)">IP</th><th></th></tr></thead><tbody id="clients"></tbody></table></div>
       <datalist id="mapHints"></datalist>
       <p class="help">"Is on map": the game only gives a map a number. When you know where a character is, type the map's name next to it (the known ones are suggested) and press Enter - the map id that client reports gets the name. A name that exists adds the id to that map (several ids can share a map); a new name makes a new map. A client that was started in the middle of a session learns its map id when the character changes zone.</p>
       <div id="near" hidden>
@@ -160,7 +160,7 @@ details > summary { cursor: pointer; color: var(--text-2); margin: 12px 0 8px; f
     <div class="card" data-tab="players">
       <h2>All characters <span class="n" id="charCount"></span></h2>
       <div class="tools"><input id="charFind" type="text" placeholder="Find a character or a player tag"></div>
-      <div class="tablewrap"><table><thead><tr><th title="One Cube Watch installation: the characters below it were played from the same PC">Player</th><th>Character</th><th>Game server</th><th>Class</th><th>Last seen</th><th></th></tr></thead><tbody id="chars"></tbody></table></div>
+      <div class="tablewrap"><table><thead><tr><th title="One Cube Watch installation: the characters below it were played from the same PC">Player</th><th>Character</th><th>Game server</th><th>Class</th><th>Last seen</th><th title="Where its client last connected from">Last IP</th><th></th></tr></thead><tbody id="chars"></tbody></table></div>
       <p class="help">Every character a Cube Watch ever reported with, online or not, grouped by installation (the random id each Cube Watch makes on its first run - only its first characters are shown). The player seen most recently is on top.</p>
     </div>
 
@@ -306,9 +306,9 @@ function render() {
       <td style="min-width:290px;white-space:nowrap">${c.map ? `<span class="num" title="map id">${c.map}</span>` : '<span class="muted" title="The game tells a client its map id when the character changes zone">id not known yet</span>'}
         <input type="text" list="mapHints" data-f="mapname" style="width:150px;margin-left:6px" value="${esc(mapOf(c.map) ? mapOf(c.map).name : '')}" placeholder="${c.map ? 'which map is it?' : ''}" ${c.map ? '' : 'disabled'}> <button class="btn small ${c.map && !mapOf(c.map) ? 'primary' : ''}" data-a="map" ${c.map ? '' : 'disabled'}>Set</button></td>
       <td class="num">${esc(c.owner || '?')}</td><td>${c.server ? esc(serverName(c.server)) : '<span class="muted">not known yet</span>'}</td><td>${esc(p.cls || '')}${p.level ? ' · Lv ' + p.level : ''}</td>
-      <td class="num">${p.x !== undefined ? fmt(p.x) : ''}</td><td class="num">${p.y !== undefined ? fmt(p.y) : ''}</td><td>${ago(c.since)}</td><td>${ago(c.last)}</td>
+      <td class="num">${p.x !== undefined ? fmt(p.x) : ''}</td><td class="num">${p.y !== undefined ? fmt(p.y) : ''}</td><td>${ago(c.since)}</td><td>${ago(c.last)}</td><td class="num">${esc(c.ip || '')}</td>
       <td class="act"><button class="btn small" data-a="near">What is around</button></td></tr>`
-  }).join('') || '<tr><td colspan="11" class="muted">No Cube Watch client is connected.</td></tr>';
+  }).join('') || '<tr><td colspan="12" class="muted">No Cube Watch client is connected.</td></tr>';
   $('mapHints').innerHTML = [...new Set(D.maps.map(m => m.name))].sort().map(n => `<option value="${esc(n)}">`).join('');
   renderNear();
 }
@@ -329,9 +329,9 @@ function renderChars() {
     list.sort((a, b) => (b.online - a.online) || b.last_seen - a.last_seen);
     return list.map((c, i) => `<tr class="${i ? '' : 'first'}">${i ? '' : `<td rowspan="${list.length}" style="vertical-align:top"><span class="num">${esc(owner || '?')}</span><br><span class="muted">${list.length} character${list.length > 1 ? 's' : ''}</span></td>`}
       <td><b>${esc(c.name)}</b></td><td>${esc(serverName(c.server))}</td><td>${esc(c.cls || '')}${c.level ? ' · Lv ' + c.level : ''}</td>
-      <td>${c.online ? '<span class="dot"></span><span class="ok">online</span>' : ago(c.last_seen)}</td>
+      <td>${c.online ? '<span class="dot"></span><span class="ok">online</span>' : ago(c.last_seen)}</td><td class="num">${esc(c.ip || '')}</td>
       <td class="act"><a class="btn small" target="_blank" rel="noopener" href="https://shugo.gg/character/global/${c.server}/${encodeURIComponent(c.name)}">shugo.gg &#8599;</a></td></tr>`).join('');
-  }).join('') || `<tr><td colspan="6" class="muted">${find ? 'Nobody like that.' : 'No Cube Watch has reported with a character yet.'}</td></tr>`;
+  }).join('') || `<tr><td colspan="7" class="muted">${find ? 'Nobody like that.' : 'No Cube Watch has reported with a character yet.'}</td></tr>`;
 }
 $('charFind').addEventListener('input', renderChars);
 $('tabs').addEventListener('click', e => {

@@ -172,6 +172,10 @@ Four tabs: **Players**, **Tracked things**, **Maps**, **Server & database**.
   "What is around" asks a client for everything it sees, nearest first,
   tracked or not: stand next to the thing in the game, press it, name the
   first row and "Track" - it becomes a kind.
+- **IP** (Online now) and **Last IP** (All characters) - where a client
+  connects from. Behind a reverse proxy on the same machine that is the
+  last entry of `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For
+  $proxy_add_x_forwarded_for;`), otherwise the socket's address.
 - **All characters** (Players) - every character a Cube Watch ever reported
   with, online or not, grouped by installation (one player's characters
   together), with when each was last seen and a link to shugo.gg.
