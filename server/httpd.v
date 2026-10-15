@@ -3,8 +3,8 @@ module main
 import net
 import net.http
 import net.urllib
-import net.websocket
 import time
+import wire
 
 // A small HTTP server of our own: every connection gets a thread, a
 // request is answered and the connection closed - unless it is a websocket
@@ -174,9 +174,10 @@ fn (mut app App) handle_conn(mut conn net.TcpConn) {
 	conn.close() or {}
 }
 
-// websocket turns the request into a websocket and reads it until it
-// ends; this call returns only then.
-fn (mut ctx Context) websocket(mut wss websocket.Server) Result {
+// websocket turns the request into a websocket of a browser (`viewer`) or
+// a Cube Watch client and serves it until it ends; this call returns only
+// then (peers.v).
+fn (mut ctx Context) websocket(mut h Hub, viewer bool) Result {
 	key := ctx.req.header.get(.sec_websocket_key) or { '' }
 	if key == '' {
 		ctx.status = .bad_request
@@ -187,7 +188,12 @@ fn (mut ctx Context) websocket(mut wss websocket.Server) Result {
 	// writer thread; one that says nothing for peer_silence ends here.
 	ctx.conn.set_write_timeout(10 * time.second)
 	ctx.conn.set_read_timeout(peer_silence)
-	wss.handle_handshake(mut ctx.conn, key) or {}
+	ip := ctx.client_ip()
+	ctx.conn.write_string('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${wire.accept_key(key)}\r\n\r\n') or {
+		ctx.conn.close() or {}
+		return Result{}
+	}
+	h.serve_peer(mut ctx.conn, viewer, ip)
 	ctx.conn.close() or {}
 	return Result{}
 }

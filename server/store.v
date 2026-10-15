@@ -76,6 +76,18 @@ const schema = [
 // History is read back in pieces of this many events.
 const events_chunk = 20000
 
+// open_more_db opens one more connection to the database open_db made:
+// for the background writes, or (`read_only`) for the statistics.
+fn open_more_db(path string, read_only bool) !sqlite.DB {
+	mut db := sqlite.connect(path)!
+	db.busy_timeout(15000)
+	db.exec_none('PRAGMA synchronous=NORMAL')
+	if read_only {
+		db.exec_none('PRAGMA query_only=1')
+	}
+	return db
+}
+
 fn open_db(path string) !sqlite.DB {
 	mut db := sqlite.connect(path)!
 	db.busy_timeout(15000)

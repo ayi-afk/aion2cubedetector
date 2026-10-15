@@ -105,6 +105,11 @@ pub mut:
 	z    f64
 }
 
+// line is the player's line of a people message.
+pub fn (p AreaPerson) line() string {
+	return '${p.x:.0f},${p.y:.0f},${p.z:.0f},${one_line(p.name)}'
+}
+
 // ServerMsg is every message the server sends to a client.
 pub struct ServerMsg {
 pub mut:
@@ -301,7 +306,7 @@ pub fn (m ServerMsg) encode() string {
 	if m.t == t_people {
 		mut lines := ['${t_people},${m.now}']
 		for p in m.people {
-			lines << '${p.x:.0f},${p.y:.0f},${p.z:.0f},${one_line(p.name)}'
+			lines << p.line()
 		}
 		return lines.join('\n')
 	}
@@ -494,6 +499,27 @@ pub fn encode_frame(opcode u8, payload []u8, mask [4]u8) []u8 {
 	for i, b in payload {
 		out << (b ^ mask[i % 4])
 	}
+	return out
+}
+
+// encode_server_frame builds one complete (FIN) frame as the backend sends
+// it: not masked.
+pub fn encode_server_frame(opcode u8, payload []u8) []u8 {
+	mut out := []u8{cap: payload.len + 10}
+	out << (0x80 | opcode)
+	if payload.len < 126 {
+		out << u8(payload.len)
+	} else if payload.len <= 0xffff {
+		out << u8(126)
+		out << u8(payload.len >> 8)
+		out << u8(payload.len)
+	} else {
+		out << u8(127)
+		mut size := []u8{len: 8}
+		binary.big_endian_put_u64(mut size, u64(payload.len))
+		out << size
+	}
+	out << payload
 	return out
 }
 

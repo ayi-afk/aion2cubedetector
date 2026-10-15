@@ -30,12 +30,14 @@ fn main() {
 	respawn := fp.int('respawn', 0, 12, 'seconds from opening the cube to the next one')
 	install := fp.string('install', 0, 'fakeclient0000001', 'installation id (characters with the same one belong together)')
 	clients := fp.int('clients', 0, 1, 'load test: this many clients that only walk around (use --server 0 so no profiles are looked up)')
+	watch := fp.bool('watch', 0, false, 'load test: the clients ask for the area around them, as with map overlay 2 on')
+	prefix := fp.string('prefix', 0, 'Bot', 'load test: names of the clients (prefix, then a number); "Unknown-" keeps the backend from looking them up')
 	fp.finalize() or {
 		eprintln(err)
 		exit(2)
 	}
 	if clients > 1 {
-		swarm(clients, addr, key, server, u32(map_id), seconds)
+		swarm(clients, addr, key, server, u32(map_id), seconds, watch, prefix)
 		return
 	}
 	mut link := remote.new_link(remote.Config{ addr: addr, key: key, install: install })
@@ -176,8 +178,9 @@ fn main() {
 
 // swarm connects many clients at once; each walks its own circle and
 // reports its position once a second.
-fn swarm(n int, addr string, key string, server int, map_id u32, seconds int) {
+fn swarm(n int, addr string, key string, server int, map_id u32, seconds int, watch bool, prefix string) {
 	mut links := []&remote.Link{}
+	mut watching := []bool{len: n}
 	for _ in 0 .. n {
 		mut link := remote.new_link(remote.Config{ addr: addr, key: key })
 		link.start()
@@ -190,14 +193,22 @@ fn swarm(n int, addr string, key string, server int, map_id u32, seconds int) {
 		for i, mut link in links {
 			link.take_inbox()
 			if !link.is_online() {
+				watching[i] = false
 				continue
 			}
 			online++
+			if watch && !watching[i] {
+				watching[i] = true
+				link.send(wire.ClientMsg{
+					t:     wire.t_watch
+					watch: true
+				})
+			}
 			angle := f64(tick) * 0.2 + f64(i)
 			link.send(wire.ClientMsg{
 				t:      wire.t_me
 				server: server
-				name:   'Bot${i + 1}'
+				name:   '${prefix}${i + 1}'
 				map:    map_id
 				x:      -150000 + f64(i % 20) * 15000 + 3000 * math.cos(angle)
 				y:      -100000 + f64(i / 20) * 15000 + 3000 * math.sin(angle)

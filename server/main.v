@@ -40,6 +40,7 @@ mut:
 }
 
 fn C.GC_expand_hp(bytes usize) int
+fn C.GC_set_max_heap_size(bytes usize)
 
 // The collector stops every thread while it runs, and each connection has
 // two threads. Starting with a roomy heap (--heap-mb) makes collections
@@ -75,7 +76,8 @@ fn main() {
 	admin_flag := fp.string('password-admin', 0, '', 'password for /admin (or CW_PASSWORD_ADMIN); empty = /admin only from localhost')
 	key_flag := fp.string('client-key', 0, '', 'key Cube Watch clients must send, REMOTE_KEY in their .env (or CW_CLIENT_KEY); empty = any client')
 	db_path := fp.string('db', 0, default_db, 'SQLite database file (default: cubewatch.db next to the executable)')
-	heap_mb := fp.int('heap-mb', 0, 128, 'memory (MB) set aside at start so the garbage collector runs rarely (default 128; 0 = grow on demand)')
+	heap_mb := fp.int('heap-mb', 0, 0, 'memory (MB) for the garbage collector set aside at start (default 0: grows on demand)')
+	max_heap_mb := fp.int('max-heap-mb', 0, 200, 'the garbage-collected memory never grows beyond this (MB; default 200 - with the rest the process stays under 256 MB; 0 = no limit)')
 	fp.finalize() or {
 		eprintln(err)
 		println(fp.usage())
@@ -93,12 +95,15 @@ fn main() {
 		if heap_mb > 0 {
 			C.GC_expand_hp(usize(heap_mb) * 1024 * 1024)
 		}
+		if max_heap_mb > 0 {
+			C.GC_set_max_heap_size(usize(max_heap_mb) * 1024 * 1024)
+		}
 	}
 	db := open_db(db_path) or {
 		eprintln('cannot open the database ${db_path}: ${err}')
 		exit(1)
 	}
-	mut hub := new_hub(db, client_key) or {
+	mut hub := new_hub(db, client_key, db_path) or {
 		eprintln('cannot load the database ${db_path}: ${err}')
 		exit(1)
 	}
@@ -408,10 +413,7 @@ pub fn (mut app App) api_stats(mut ctx Context) Result {
 		return ctx.fail(.unauthorized, 'login required')
 	}
 	server := (ctx.query['server'] or { '0' }).int()
-	app.hub.mu.lock()
-	body := app.hub.stats_json(server)
-	app.hub.mu.unlock()
-	return ctx.ok_json(body)
+	return ctx.ok_json(app.hub.stats_json(server))
 }
 
 // ---- websockets ---------------------------------------------------------------------------
@@ -420,12 +422,12 @@ pub fn (mut app App) ws_view(mut ctx Context) Result {
 	if !app.user_ok(ctx) {
 		return ctx.fail(.unauthorized, 'login required')
 	}
-	return ctx.websocket(mut app.hub.wss_view)
+	return ctx.websocket(mut app.hub, true)
 }
 
 // Cube Watch clients prove themselves with the key in their first message.
 pub fn (mut app App) ws_client(mut ctx Context) Result {
-	return ctx.websocket(mut app.hub.wss_client)
+	return ctx.websocket(mut app.hub, false)
 }
 
 // ---- admin ----------------------------------------------------------------------------------
@@ -703,6 +705,7 @@ pub fn (mut app App) admin_kind_delete(mut ctx Context) Result {
 	defer {
 		h.mu.unlock()
 	}
+	h.settle()
 	q(h.db, 'DELETE FROM events WHERE spot_id IN (SELECT id FROM spots WHERE cat=? AND tpl=?)',
 		inp.cat, inp.tpl.str()) or { return ctx.fail(.internal_server_error, err.msg()) }
 	q(h.db, 'DELETE FROM spots WHERE cat=? AND tpl=?', inp.cat, inp.tpl.str()) or {
@@ -755,6 +758,7 @@ pub fn (mut app App) admin_spot_delete(mut ctx Context, id int) Result {
 	defer {
 		h.mu.unlock()
 	}
+	h.settle()
 	q(h.db, 'DELETE FROM events WHERE spot_id=?', id.str()) or {
 		return ctx.fail(.internal_server_error, err.msg())
 	}
@@ -869,6 +873,7 @@ pub fn (mut app App) admin_import_history(mut ctx Context) Result {
 	defer {
 		h.mu.unlock()
 	}
+	h.settle()
 	before_spots := h.w.spots.len
 	mut rows := 0
 	for line in ctx.req.data.split_into_lines() {
@@ -1094,6 +1099,7 @@ pub fn (mut app App) admin_export(mut ctx Context) Result {
 	}
 	mut h := app.hub
 	h.mu.lock()
+	h.settle()
 	// What is still waiting in memory belongs into the copy too.
 	save_changes(h.db, h.w.take_dirty_spots(), h.w.take_events()) or {}
 	data := export_database(h.db) or {
@@ -1126,6 +1132,7 @@ pub fn (mut app App) admin_import(mut ctx Context) Result {
 	defer {
 		h.mu.unlock()
 	}
+	h.settle()
 	save_changes(h.db, h.w.take_dirty_spots(), h.w.take_events()) or {}
 	res := merge_database(h.db, tmp) or { return ctx.fail(.bad_request, err.msg()) }
 	// The merged history changes counters and states: build the world again.

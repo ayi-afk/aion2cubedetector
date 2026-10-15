@@ -2,9 +2,7 @@ module main
 
 import db.sqlite
 import x.json2
-import log
 import math
-import net.websocket
 import strings
 import sync
 import time
@@ -23,6 +21,9 @@ import server.world
 // putting the text into the queues; a peer that does not keep up (queue
 // full) or stops answering is dropped without holding anybody else back.
 
+// The statistics box of the map pages (all of them ask every 30 s) is
+// worked out at most this often per game server.
+const stats_seconds = i64(15)
 // A player who has not reported for this long is taken off the map (seconds).
 const person_ttl = i64(120)
 // How often collected changes are written to the database.
@@ -68,6 +69,7 @@ mut:
 	area_key string
 	area_rev u64
 	area_at  i64
+	ip       string // where the client connects from
 }
 
 // Outgoing says who gets a message.
@@ -78,21 +80,7 @@ struct Outgoing {
 	client  string // one Cube Watch client (websocket id)
 	text    string
 	close   bool // close that one connection afterwards
-}
-
-// Peer is one websocket connection that has said hello.
-@[heap]
-struct Peer {
-	id     string
-	viewer bool // a browser; else a Cube Watch client
-mut:
-	client &websocket.Client = unsafe { nil }
-	out    chan string
-	kick   bool // close after the next message
-	// What a Cube Watch client gets is sealed (wire/seal.v); `plain` is a
-	// client from before that, which is only told to update.
-	sealer wire.Sealer
-	plain  bool
+	area    bool // the people message of area_loop (not queued while the last one waits)
 }
 
 @[heap]
@@ -120,25 +108,40 @@ mut:
 	// instance) is listed under its named server: person key there -> the
 	// key it is listed under (merge_instances).
 	home_of      map[string]string
-	wss_client   &websocket.Server = unsafe { nil }
-	wss_view     &websocket.Server = unsafe { nil }
-	peers_mu     &sync.Mutex       = sync.new_mutex() // after `mu` when both are needed
+	peers_mu     &sync.Mutex = sync.new_mutex() // after `mu` when both are needed
 	peers        map[string]&Peer
 	dirty_people map[string]bool // new, or their profile changed: the browsers get all of them
 	moved_people map[string]bool // only moved since the last batch to the browsers
 	started      i64
 	reports      i64 // sightings applied since start
 	area_rev     u64 = 1 // goes up when a place or what is at one changed
+	// Two more connections to the database, so that the slow work is done
+	// without `mu`: flush_loop writes with `wdb` while holding `flush_mu`
+	// (after `mu` when both are needed: settle), the statistics read with `rdb`.
+	wdb         sqlite.DB
+	rdb         sqlite.DB
+	flush_mu    &sync.Mutex = sync.new_mutex()
+	stats_mu    &sync.Mutex = sync.new_mutex() // guards stats_cache and stats_busy
+	stats_cache map[int]StatsCache
+	stats_busy  map[int]bool // the statistics of this game server are being worked out
+}
+
+// StatsCache is the statistics box of one game server as last worked out.
+struct StatsCache {
+	at   i64
+	text string
 }
 
 fn now_unix() i64 {
 	return time.now().unix()
 }
 
-fn new_hub(db sqlite.DB, client_key string) !&Hub {
+fn new_hub(db sqlite.DB, client_key string, db_path string) !&Hub {
 	mut h := &Hub{
 		w:          load_world(db)!
 		db:         db
+		wdb:        open_more_db(db_path, false)!
+		rdb:        open_more_db(db_path, true)!
 		client_key: client_key
 		started:    now_unix()
 	}
@@ -150,8 +153,6 @@ fn new_hub(db sqlite.DB, client_key string) !&Hub {
 			h.name_servers[r.vals[1].to_lower()] = r.vals[0].int()
 		}
 	}
-	mut quiet := &log.Log{}
-	quiet.set_level(.disabled)
 	if known := json2.decode[ServersFile](servers_json) {
 		for srv in known.servers {
 			h.server_names[srv.id] = srv.name
@@ -171,52 +172,7 @@ fn new_hub(db sqlite.DB, client_key string) !&Hub {
 	for install in h.owned.keys() {
 		h.merge_instances(install)
 	}
-	h.wss_client = websocket.new_server(.ip, 0, '', logger: quiet)
-	h.wss_view = websocket.new_server(.ip, 0, '', logger: quiet)
-	// The websocket module logs every frame at debug level by default.
-	h.wss_client.on_connect(quiet_client)!
-	h.wss_view.on_connect(quiet_client)!
-	h.wss_client.on_message_ref(fn (mut c websocket.Client, msg &websocket.Message, ref voidptr) ! {
-		mut hub := unsafe { &Hub(ref) }
-		if msg.opcode == .binary_frame {
-			hub.peer(mut c, false)
-			text := wire.open(msg.payload, false) or {
-				hub.refuse(c.id, 'not a Cube Watch message')
-				return
-			}
-			hub.on_client_text(c.id, text)
-		} else if msg.opcode == .text_frame {
-			mut p := hub.peer(mut c, false)
-			p.plain = true
-			hub.refuse(c.id, 'this backend needs a newer Cube Watch')
-		}
-	}, h)
-	h.wss_client.on_close_ref(fn (mut c websocket.Client, code int, reason string, ref voidptr) ! {
-		mut hub := unsafe { &Hub(ref) }
-		hub.drop_peer(c.id)
-		hub.mu.lock()
-		hub.sessions.delete(c.id)
-		hub.mu.unlock()
-	}, h)
-	h.wss_view.on_message_ref(fn (mut c websocket.Client, msg &websocket.Message, ref voidptr) ! {
-		mut hub := unsafe { &Hub(ref) }
-		if msg.opcode == .text_frame {
-			hub.peer(mut c, true)
-			hub.on_viewer_text(c.id, msg.payload.bytestr())
-		}
-	}, h)
-	h.wss_view.on_close_ref(fn (mut c websocket.Client, code int, reason string, ref voidptr) ! {
-		mut hub := unsafe { &Hub(ref) }
-		hub.drop_peer(c.id)
-	}, h)
 	return h
-}
-
-fn quiet_client(mut sc websocket.ServerClient) !bool {
-	mut quiet := &log.Log{}
-	quiet.set_level(.disabled)
-	sc.client.logger = quiet
-	return true
 }
 
 fn (mut h Hub) set_maps(maps []MapDef) {
@@ -243,109 +199,6 @@ fn (h &Hub) canonical_map(id u32) u32 {
 		return h.default_map
 	}
 	return h.alias[id] or { id }
-}
-
-// peer returns the connection's Peer, creating it (and its writer thread)
-// at its first message. Before that nothing is sent to a connection: the
-// websocket handshake answer has to go out first.
-fn (mut h Hub) peer(mut c websocket.Client, viewer bool) &Peer {
-	h.peers_mu.lock()
-	defer {
-		h.peers_mu.unlock()
-	}
-	if p := h.peers[c.id] {
-		return p
-	}
-	mut p := &Peer{
-		id:     c.id
-		viewer: viewer
-		client: unsafe { c }
-		out:    chan string{cap: peer_queue}
-		sealer: wire.new_sealer(true)
-	}
-	h.peers[c.id] = p
-	spawn h.write_loop(mut p)
-	return p
-}
-
-// write_loop is the only thread that writes to this connection.
-fn (mut h Hub) write_loop(mut p Peer) {
-	for {
-		text := <-p.out or { break }
-		if p.viewer || p.plain {
-			p.client.write_string(text) or { break }
-		} else {
-			p.client.write(p.sealer.seal(text), .binary_frame) or { break }
-		}
-		if p.kick {
-			break
-		}
-	}
-	h.drop_peer(p.id)
-	p.client.close(1000, 'closed') or {}
-}
-
-// refuse tells a client why it is not wanted and closes its connection.
-fn (mut h Hub) refuse(id string, why string) {
-	h.send(Outgoing{
-		client: id
-		text:   wire.ServerMsg{
-			t:   wire.t_error
-			msg: why
-		}.encode()
-		close:  true
-	})
-}
-
-// drop_peer forgets a connection; its writer thread ends.
-fn (mut h Hub) drop_peer(id string) {
-	h.peers_mu.lock()
-	if p := h.peers[id] {
-		p.out.close()
-		h.peers.delete(id)
-	}
-	h.peers_mu.unlock()
-}
-
-// send queues a message for its receivers and returns at once.
-fn (mut h Hub) send(o Outgoing) {
-	h.peers_mu.lock()
-	mut slow := []string{}
-	for id, mut p in h.peers {
-		wanted := if p.viewer { o.viewers || id == o.viewer } else { o.clients || id == o.client }
-		if !wanted {
-			continue
-		}
-		if o.close {
-			p.kick = true
-		}
-		if p.out.try_push(o.text) != .success {
-			slow << id
-		}
-	}
-	for id in slow {
-		// It reconnects and gets the whole picture again.
-		if p := h.peers[id] {
-			p.out.close()
-			h.peers.delete(id)
-		}
-	}
-	h.peers_mu.unlock()
-}
-
-// connected counts the browsers or the Cube Watch clients.
-fn (mut h Hub) connected(viewers bool) int {
-	h.peers_mu.lock()
-	defer {
-		h.peers_mu.unlock()
-	}
-	mut n := 0
-	for _, p in h.peers {
-		if p.viewer == viewers {
-			n++
-		}
-	}
-	return n
 }
 
 // ---- what the browsers get -------------------------------------------------------
@@ -756,56 +609,119 @@ fn (h &Hub) spots_text(server int, map_id u32, now i64) string {
 	return msg.encode()
 }
 
+// AreaWatcher is a client that asked for the area around it, as area_loop
+// sees it in one round.
+struct AreaWatcher {
+	id     string
+	person string // its own player, left out of what it gets
+	area   string // game server and map
+	fresh  bool   // asked again or came to another map: gets everything anew
+}
+
+// AreaPeople is a player as area_loop sends it.
+struct AreaPeople {
+	key  string
+	line string
+}
+
 // area_loop tells every client that asked for it (wire.t_watch) what the
 // backend knows around its character: the other players on its game server
-// and map every two seconds, and the tracked places of that map when the
-// character came to it or something there changed.
+// and map every two seconds (only when that changed since the last time),
+// and the tracked places of that map when the character came to it or
+// something there changed. Under `mu` only the positions are copied; the
+// text is written after, every player's line once per round.
 fn (mut h Hub) area_loop() {
+	mut sent_people := map[string]string{} // client -> the people it got last
 	for {
 		time.sleep(area_interval)
 		now := now_unix()
+		mut watchers := []AreaWatcher{}
 		mut out := []Outgoing{}
-		mut sent := map[string]ClientSession{}
+		mut spots_of := map[string]string{} // area -> its spots message this round
+		mut players := map[string][]wire.AreaPerson{}
+		mut keys := map[string][]string{}
+		mut updated := map[string]ClientSession{}
 		h.mu.lock()
 		for id, ses in h.sessions {
 			if !ses.watch || !ses.authed || ses.person == '' {
 				continue
 			}
 			map_id := h.canonical_map(ses.map)
-			mut people := wire.ServerMsg{
-				t:   wire.t_people
-				now: now
-			}
-			for key, p in h.w.people {
-				if key != ses.person && p.server == ses.server && p.map == map_id {
-					people.people << wire.AreaPerson{p.name, p.x, p.y, p.z}
+			area := '${ses.server}:${map_id}'
+			fresh := area != ses.area_key
+			watchers << AreaWatcher{id, ses.person, area, fresh}
+			players[area] = []
+			if fresh || (ses.area_rev != h.area_rev && now - ses.area_at >= area_spots_seconds) {
+				text := spots_of[area] or {
+					t := h.spots_text(ses.server, map_id, now)
+					spots_of[area] = t
+					t
 				}
-			}
-			out << Outgoing{
-				client: id
-				text:   people.encode()
-			}
-			key := '${ses.server}:${map_id}'
-			if key != ses.area_key
-				|| (ses.area_rev != h.area_rev && now - ses.area_at >= area_spots_seconds) {
 				out << Outgoing{
 					client: id
-					text:   h.spots_text(ses.server, map_id, now)
+					text:   text
 				}
-				sent[id] = ClientSession{
+				updated[id] = ClientSession{
 					...ses
-					area_key: key
+					area_key: area
 					area_rev: h.area_rev
 					area_at:  now
 				}
 			}
 		}
-		for id, ses in sent {
+		for id, ses in updated {
 			h.sessions[id] = ses
 		}
+		if watchers.len > 0 {
+			for key, p in h.w.people {
+				area := '${p.server}:${p.map}'
+				if area in players {
+					players[area] << wire.AreaPerson{p.name, p.x, p.y, p.z}
+					keys[area] << key
+				}
+			}
+		}
 		h.mu.unlock()
-		for o in out {
-			h.send(o)
+		mut lines := map[string][]AreaPeople{}
+		for area, list in players {
+			mut rows := []AreaPeople{cap: list.len}
+			for i, p in list {
+				rows << AreaPeople{keys[area][i], p.line()}
+			}
+			lines[area] = rows
+		}
+		mut still := map[string]string{}
+		head := '${wire.t_people},${now}'
+		for w in watchers {
+			rows := lines[w.area] or { []AreaPeople{} }
+			mut sb := strings.new_builder(head.len + rows.len * 32)
+			sb.write_string(head)
+			for r in rows {
+				if r.key != w.person {
+					sb.write_u8(`\n`)
+					sb.write_string(r.line)
+				}
+			}
+			text := sb.str()
+			// what follows the head (the clock in it changes every round)
+			body := unsafe { tos(text.str + head.len, text.len - head.len) }
+			still[w.id] = body
+			if !w.fresh && w.id in sent_people && sent_people[w.id] == body {
+				continue
+			}
+			out << Outgoing{
+				client: w.id
+				text:   text
+				area:   true
+			}
+		}
+		// clients that stopped watching or are gone are forgotten
+		sent_people = still.move()
+		if out.len > 0 {
+			// one whose last message still waits gets the next change
+			for id in h.send_all(out) {
+				sent_people.delete(id)
+			}
 		}
 	}
 }
@@ -820,18 +736,24 @@ fn (mut h Hub) flush_loop() {
 		spots := h.w.take_dirty_spots()
 		events := h.w.take_events()
 		gone := h.w.expire_people(now_unix(), person_ttl)
-		save_changes(h.db, spots, events) or { eprintln('[db] ${err}') }
+		mut last_seen := [][]string{}
 		for key in gone {
 			// when its player's character was last there
 			install := h.owner_of[key] or { continue }
 			home := h.home_of[key] or { key }
 			name := h.owned[install][home] or { continue }
-			q(h.db, 'UPDATE owners SET last_seen=? WHERE install=? AND server=? AND name=?',
-				h.char_seen[home].str(), install, home.all_before(':'), name) or {
-				eprintln('[db] ${err}')
-			}
+			last_seen << [h.char_seen[home].str(), install, home.all_before(':'), name]
 		}
+		// Written without `mu`, so that nobody waits for the disk; whoever
+		// replaces or reads the whole database waits for it (settle).
+		h.flush_mu.lock()
 		h.mu.unlock()
+		save_changes(h.wdb, spots, events) or { eprintln('[db] ${err}') }
+		for row in last_seen {
+			q(h.wdb, 'UPDATE owners SET last_seen=? WHERE install=? AND server=? AND name=?',
+				...row) or { eprintln('[db] ${err}') }
+		}
+		h.flush_mu.unlock()
 		for key in gone {
 			h.send(Outgoing{
 				viewers: true
@@ -839,6 +761,13 @@ fn (mut h Hub) flush_loop() {
 			})
 		}
 	}
+}
+
+// settle waits until what flush_loop took from the world is in the
+// database. Call with `mu` held (then nothing new is taken meanwhile).
+fn (mut h Hub) settle() {
+	h.flush_mu.lock()
+	h.flush_mu.unlock()
 }
 
 fn (h &Hub) servers_out() []ServerName {
@@ -1229,30 +1158,40 @@ mut:
 }
 
 // stats_json sums up one game server (-1 = all of them, the imported
-// history included). Call with `mu` held.
+// history included) for the statistics box of the map. The map pages ask
+// every 30 s; the answer is worked out at most every stats_seconds per game
+// server. What is kept in memory is read under `mu`, the counts from the
+// history in SQLite without it; while that runs, the others get the last
+// answer. Call without `mu`.
 fn (mut h Hub) stats_json(server int) string {
 	now := now_unix()
+	h.stats_mu.lock()
+	if c := h.stats_cache[server] {
+		if now - c.at < stats_seconds || server in h.stats_busy {
+			h.stats_mu.unlock()
+			return c.text
+		}
+	}
+	h.stats_busy[server] = true
+	h.stats_mu.unlock()
+	text := h.work_out_stats(server, now)
+	h.stats_mu.lock()
+	h.stats_cache[server] = StatsCache{now, text}
+	h.stats_busy.delete(server)
+	h.stats_mu.unlock()
+	return text
+}
+
+fn (mut h Hub) work_out_stats(server int, now i64) string {
 	mut out := StatsOut{
 		now:    now
 		server: server
 	}
-	// what is still waiting in memory belongs into the numbers too
-	save_changes(h.db, h.w.take_dirty_spots(), h.w.take_events()) or {}
-	mut day := map[string][]int{}
-	rows := q(h.db, "SELECT s.cat, s.tpl,
-			count(DISTINCT CASE WHEN e.typ IN ('seen','noted') AND e.ts>=?1 THEN e.id END),
-			count(DISTINCT CASE WHEN e.typ IN ('taken','gone') AND e.ts>=?1 THEN e.spot_id||':'||e.ts END),
-			count(DISTINCT CASE WHEN e.typ IN ('seen','noted') THEN e.id END),
-			count(DISTINCT CASE WHEN e.typ IN ('taken','gone') THEN e.spot_id||':'||e.ts END)
-		FROM events e JOIN spots s ON s.id = e.spot_id WHERE e.server=?2 OR ?2='-1' GROUP BY s.cat, s.tpl",
-		(now - 86400).str(), server.str()) or { [] }
-	for r in rows {
-		day['${r.vals[0]}:${r.vals[1]}'] = r.vals[2..].map(it.int())
-	}
+	mut keys := []string{}
+	h.mu.lock()
 	for key, k in h.w.kinds {
 		mut spots := 0
 		mut here := 0
-		mut delays := []int{}
 		mut life_sum := i64(0)
 		mut life_n := 0
 		for _, s in h.w.spots {
@@ -1284,31 +1223,48 @@ fn (mut h Hub) stats_json(server int) string {
 				}
 			}
 		}
-		delays = h.w.kind_delays[key] or { []int{} }
-		mut sorted := delays.clone()
+		mut sorted := (h.w.kind_delays[key] or { []int{} }).clone()
 		sorted.sort()
-		n := day[key] or { [0, 0, 0, 0] }
+		keys << key
 		out.kinds << KindStats{
-			cat:       k.cat
-			tpl:       k.tpl
-			name:      k.name
-			spots:     spots
-			here:      here
-			seen_day:  n[0]
-			taken_day: n[1]
-			seen_all:  n[2]
-			taken_all: n[3]
-			respawn:   if k.respawn_sec > 0 {
+			cat:     k.cat
+			tpl:     k.tpl
+			name:    k.name
+			spots:   spots
+			here:    here
+			respawn: if k.respawn_sec > 0 {
 				k.respawn_sec
 			} else if sorted.len > 0 {
 				sorted[sorted.len / 2]
 			} else {
 				0
 			}
-			pickup:    if life_n > 0 { int(life_sum / life_n) } else { 0 }
+			pickup:  if life_n > 0 { int(life_sum / life_n) } else { 0 }
 		}
 	}
-	takers := q(h.db, "SELECT who, count(*) FROM events WHERE (server=?1 OR ?1='-1') AND typ='taken' AND who<>'' AND ts>=?2 GROUP BY who ORDER BY 2 DESC, 1 LIMIT 10",
+	h.mu.unlock()
+	mut day := map[string][]int{}
+	rows := q(h.rdb, "SELECT s.cat, s.tpl,
+			count(DISTINCT CASE WHEN e.typ IN ('seen','noted') AND e.ts>=?1 THEN e.id END),
+			count(DISTINCT CASE WHEN e.typ IN ('taken','gone') AND e.ts>=?1 THEN e.spot_id||':'||e.ts END),
+			count(DISTINCT CASE WHEN e.typ IN ('seen','noted') THEN e.id END),
+			count(DISTINCT CASE WHEN e.typ IN ('taken','gone') THEN e.spot_id||':'||e.ts END)
+		FROM events e JOIN spots s ON s.id = e.spot_id WHERE e.server=?2 OR ?2='-1' GROUP BY s.cat, s.tpl",
+		(now - 86400).str(), server.str()) or { [] }
+	for r in rows {
+		day['${r.vals[0]}:${r.vals[1]}'] = r.vals[2..].map(it.int())
+	}
+	for i, key in keys {
+		n := day[key] or { [0, 0, 0, 0] }
+		out.kinds[i] = KindStats{
+			...out.kinds[i]
+			seen_day:  n[0]
+			taken_day: n[1]
+			seen_all:  n[2]
+			taken_all: n[3]
+		}
+	}
+	takers := q(h.rdb, "SELECT who, count(*) FROM events WHERE (server=?1 OR ?1='-1') AND typ='taken' AND who<>'' AND ts>=?2 GROUP BY who ORDER BY 2 DESC, 1 LIMIT 10",
 		server.str(), (now - 7 * 86400).str()) or { [] }
 	for r in takers {
 		out.takers << TakerStats{r.vals[0], r.vals[1].int()}

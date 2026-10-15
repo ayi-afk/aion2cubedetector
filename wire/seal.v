@@ -73,7 +73,9 @@ pub fn (mut s Sealer) seal(text string) []u8 {
 	mut out := []u8{len: nonce_size, cap: text.len + seal_overhead}
 	binary.big_endian_put_u32(mut out, s.salt)
 	binary.little_endian_put_u64_at(mut out, s.count, 4)
-	out << chacha20poly1305.encrypt(text.bytes(), link_key, out[..nonce_size], if s.server {
+	// the text is only read: no copy of it
+	out << chacha20poly1305.encrypt(unsafe { text.str.vbytes(text.len) }, link_key, out[..nonce_size],
+		if s.server {
 		from_server
 	} else {
 		from_client

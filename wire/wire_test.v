@@ -287,3 +287,21 @@ fn test_the_area_around_a_client_in_the_text_format() {
 	err := decode_server('error,spots, people and more') or { panic('error') }
 	assert err.t == t_error && err.msg == 'spots, people and more'
 }
+
+fn test_server_frames_are_not_masked_and_read_back() {
+	for size in [0, 5, 125, 126, 300, 65535, 65536, 70000] {
+		payload := []u8{len: size, init: u8(index * 7)}
+		frame := encode_server_frame(op_binary, payload)
+		assert frame[0] == 0x82
+		assert frame[1] & 0x80 == 0, 'a frame from the backend is not masked'
+		mut r := FrameReader{}
+		// in pieces, as they come over the network
+		for at := 0; at < frame.len; at += 1000 {
+			r.feed(frame[at..if at + 1000 < frame.len { at + 1000 } else { frame.len }])
+		}
+		got := must_next(mut r) or { panic('frame of ${size} bytes') }
+		assert got.opcode == op_binary && got.payload == payload
+	}
+	pong := encode_server_frame(op_pong, 'x'.bytes())
+	assert pong == [u8(0x8a), 1, `x`]
+}

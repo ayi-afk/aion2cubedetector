@@ -17,7 +17,8 @@ cubewatch-server --port 8081 --password MapPassword --password-admin AdminPasswo
 | `--password-admin` | password for `/admin` (or `CW_PASSWORD_ADMIN`); empty = `/admin` only from localhost |
 | `--client-key` | key Cube Watch clients must send - `REMOTE_KEY` in their `.env` (or `CW_CLIENT_KEY`); empty = any client may report |
 | `--db` | SQLite file (default `cubewatch.db` next to the executable, created automatically) |
-| `--heap-mb` | memory set aside at start so the garbage collector runs rarely (default 128) |
+| `--heap-mb` | memory for the garbage collector set aside at start (default 0: grows on demand) |
+| `--max-heap-mb` | the garbage-collected memory never grows beyond this (default 200, so that the process stays under 256 MB; 0 = no limit). Reaching it ends the process - with the limits below that does not happen in normal use |
 
 Everything is on the one port:
 
@@ -232,12 +233,26 @@ a line to `map_image()` in `maps.v`, rebuild.
 
 ## Many clients
 
-Every websocket (client or browser) has its own reader thread, its own queue
-of outgoing messages and its own writer thread; sending only puts text into
-queues, so a slow or dead connection never holds the others back - it is
-dropped when its queue fills up (512 messages) or when it is silent for 75 s
-(clients and pages ping every 20 - 25 s). The state lives in memory; SQLite
-is written by a background thread every 2 s in one transaction.
+Every websocket (client or browser) is served by the thread that accepted
+it, which reads whole frames into one buffer (`peers.v`, not V's
+net.websocket: that reads a frame in tiny pieces - dozens of system calls and
+locks per message), plus a writer thread of its own with a queue of outgoing
+messages. Sending only puts text into queues, so a slow or dead connection
+never holds the others back - it is dropped when more than 1 MB (or 512
+messages) waits for it, or when it is silent for 75 s (clients and pages
+ping every 20 - 25 s). An idle connection is two sleeping threads. The
+queue is a plain array: a V channel keeps every message that passed through
+its slots alive until the slot is used again, which made each connection
+hold its last few hundred messages. The people message of the area feed is
+not queued while the previous one still waits (the next one replaces it).
+
+The state lives in memory. SQLite is written by a background thread every
+2 s in one transaction, on a connection of its own and without the hub's
+lock, so nobody waits for the disk; whatever replaces or deletes history in
+the admin panel waits for that write first. The statistics box of the map
+(every page asks every 30 s) is worked out at most every 15 s per game
+server, on a read-only connection, and while that runs the pages get the
+last answer.
 
 Clients talk in a short comma separated text format (`wire/wire.v`), every
 message sealed with ChaCha20-Poly1305 (`wire/seal.v`; a few microseconds per
@@ -255,11 +270,20 @@ source. A Cube Watch from before the encryption is told to update.) The
 on its game server (`spots`) when it comes to the map and when something
 changed (at most every 5 seconds). Older clients never ask and get neither.
 Position updates go to the browsers in batches of plain lines twice a second,
-because that is the busy path. Measured on a desktop PC with the optimized
-Windows build: 600 clients each reporting a position every second (far more
-than real clients do - they report on change, at most once a second, and a
-heartbeat every 10 s) took about a third of one CPU core and 220 MB, with
-HTTP answered in a few milliseconds.
+because that is the busy path.
+
+Measured with the Linux build in WSL, pinned to 2 CPUs (the target VPS):
+300 clients each reporting a position every second and all watching the area
+(far more than real clients do - they report on change, at most once a
+second, and a heartbeat every 10 s), 60 map pages each asking for the
+statistics every 30 s, a history of 200,000 events, and all clients
+reconnecting every minute: about 9 % of one core, 85 MB, the slowest answer
+0.8 s; with only the pages 3 %. The version before used 100 % of a core
+with the first wave of clients and 195 % after the second - every
+reconnect left about 600 threads running in net.websocket - with answers
+taking up to 50 s. To repeat it: `v run tools/fakeclient --clients 300
+--server 0 --watch --prefix Unknown-` against a backend (`--prefix
+Unknown-` keeps it from looking the names up on the official site).
 
 ## What is stored (SQLite)
 
